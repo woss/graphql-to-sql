@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "sourceMap": true,
+    "lib": ["es5", "es6", "dom", "es2015", "esnext.asynciterable"],
+    "moduleResolution": "node",
+    "skipLibCheck": true,
+    "target": "esnext"
+  },
+  "rootDir": "src",
+  "outDir": ".build",
+  "exclude": ["node_modules", "!node_modules/@types"],
+  "include": ["src/**/*", "typings/**/*"]
+}

@@ -1,0 +1,28 @@
+{
+  "defaultSeverity": "warning",
+  "extends": ["tslint:recommended", "tslint-config-prettier"],
+  "rules": {
+    "semicolon": false,
+    "quotemark": false,
+    "object-literal-sort-keys": false,
+    "ordered-imports": false,
+    "no-console": false,
+    "prefer-const": false,
+    "interface-name": false,
+    "await-promise": false,
+    "no-floating-promises": false,
+    "no-implicit-dependencies": false,
+    "no-unnecessary-qualifier": false,
+    "no-unnecessary-type-assertion": false,
+    "no-unused-variable": false,
+    "no-namespace": false,
+    "no-use-before-declare": false,
+    "return-undefined": false,
+    "strict-type-predicates": false,
+    "no-string-throw": false
+  },
+  "rulesDirectory": [],
+  "linterOptions": {
+    "exclude": [".build", "src/generated", "src/tests"]
+  }
+}
