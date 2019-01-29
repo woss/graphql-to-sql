@@ -1,6 +1,7 @@
 import {IGQLField, Parser, DatabaseType} from 'prisma-datamodel'
-import Sequelize from 'sequelize'
+import Sequelize, {DefineAttributeColumnOptions} from 'sequelize'
 import {readFileSync} from 'fs'
+import {ITableRelation} from './interfaces'
 
 export const loadSchemaFromFile = (filePath: string) => {
   return readFileSync(filePath).toString()
@@ -11,53 +12,40 @@ export const parseSchemaFromString = (schemaString: string) => {
   return parser.parseFromSchemaString(schemaString)
 }
 
-export const generateColumn = (
-  modelName: string,
-  prismaField: any | IGQLField,
-): {fields?: {}; relations?: {}} => {
+export const generateColumn = (prismaField: any | IGQLField) => {
   const {name, type} = prismaField
-
-  let fields = {}
-  let ret = {}
   if (!isRelation(prismaField)) {
     console.log('       generating column for %s', name)
-    ret['fields'] = transformField(prismaField)
-  } else if (typeof type === 'object') {
-    console.log('     relation encountered %s creating model defition', name)
-    ret = processPrismaRelation(modelName, prismaField)
+    const ret = transformField(prismaField)
+    return ret
+  }
+}
+
+export const generateRelation = (
+  tableName: string,
+  prismaField: any | IGQLField,
+): ITableRelation => {
+  const {name, type} = prismaField
+  if (!isRelation(prismaField)) {
+    return
   }
 
-  return ret
+  console.log('     relation encountered %s creating model defition', name)
+  const relation = processPrismaRelation(prismaField)
+  return relation
 }
+
 export const isRelation = (field: IGQLField): Boolean => {
   const {type} = field
   return typeof type === 'object'
 }
 
 export const processPrismaRelation = (
-  originalModelName: string,
   prismaField: IGQLField,
-): any => {
+): ITableRelation => {
   // table fields and possible relations
-  const {fields} = prismaField.type as any
+  const {fields, name: modelName} = prismaField.type as any
   const {name: relationFieldName, relationName, isList} = prismaField
-
-  let columns = {}
-  fields.forEach(f => {
-    const {
-      name,
-      type: {name: modelName},
-    } = f
-    if (isRelation(f)) {
-      if (originalModelName === modelName) {
-        console.log('    circular relation', modelName, name)
-        return
-      }
-      columns[name] = generateColumn(originalModelName, f)
-    }
-    columns[name] = generateColumn(originalModelName, f)
-  })
-
   if (isList) {
     console.log('     %s is a n:n relation', relationFieldName)
   } else {
@@ -65,37 +53,62 @@ export const processPrismaRelation = (
   }
 
   return {
-    fields: columns,
-    relations: {
-      relationName,
-      relationFieldName,
-      isList,
-      target: relationFieldName,
-    },
+    relationName,
+    relationFieldName,
+    isList,
+    target: modelName,
   }
 }
 
-export const createRelation = (source, target) => {}
 export const getSqlTypeFromPrisma = type => {
   let t = null
+  if (typeof type !== 'string') {
+    return t
+  }
+
   switch (type) {
-    case 'UUID':
-      t = Sequelize.UUID
+    case 'DateTime':
+      t = Sequelize.DATE
+      break
+    case 'Int':
+      t = Sequelize.INTEGER
       break
     default:
+      t = Sequelize[type.toUpperCase()]
       break
   }
   return t
 }
-export const transformField = ({isId, name, isRequired, type}: IGQLField) => {
-  let sqlType = getSqlTypeFromPrisma(type)
-  let ret = {
-    primaryKey: false,
-    type: sqlType,
+
+export const getDefaultValueFromPrisma = (defaultValue, type) => {
+  let t = null
+  if (typeof type !== 'string') {
+    return t
   }
 
-  if (isId) {
-    ret.primaryKey = true
+  switch (type) {
+    case 'DateTime':
+      t = Sequelize.NOW
+      break
+    case 'UUID':
+      t = Sequelize.UUIDV4
+      break
+    default:
+      t = defaultValue
+      break
   }
+  return t
+}
+
+export const transformField = (field: IGQLField) => {
+  const {isId, name, isRequired, type, defaultValue, isUnique} = field
+
+  let ret: DefineAttributeColumnOptions = {
+    primaryKey: isId,
+    defaultValue: getDefaultValueFromPrisma(defaultValue, type),
+    type: getSqlTypeFromPrisma(type),
+    unique: isUnique,
+  }
+
   return ret
 }

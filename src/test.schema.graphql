@@ -1,13 +1,13 @@
 type User {
-  id: UUID! @id
+  id: UUID! @unique
+  albums: [album!]! @relation(name: "UserAlbum")
 }
 type Photo {
   id: UUID! @unique
   user: User @relation(name: "PhotoOwner")
-  albums: [Album!]! @relation(name: "AlbumsInPhoto")
+  albums: [album!]! @relation(name: "PhotoInAlbum")
 }
-type Album {
+type album {
   id: UUID! @unique
-  user: User @relation(name: "AlbumOwner")
   photos: [Photo!]! @relation(name: "PhotoInAlbum")
 }
