@@ -3,8 +3,14 @@
   "version": "1.0.0",
   "main": "index.js",
   "license": "MIT",
+  "scripts": {
+    "dev": "nodemon  --watch * -r ts-node/register --inspect=32211 src/index.ts",
+    "test": "jest --watch"
+  },
   "dependencies": {
+    "@types/jest": "^23.3.13",
     "@types/sequelize": "^4.27.34",
+    "jest": "^24.0.0",
     "nodemon": "^1.18.9",
     "pg": "^7.8.0",
     "pg-hstore": "^2.3.2",
@@ -12,5 +18,9 @@
     "sequelize": "^4.42.0",
     "ts-node": "^8.0.2",
     "typescript": "^3.2.4"
+  },
+  "devDependencies": {
+    "@babel/preset-typescript": "^7.1.0",
+    "debug": "^4.1.1"
   }
 }

@@ -4,6 +4,7 @@ type User {
 type Photo {
   id: UUID! @unique
   user: User @relation(name: "PhotoOwner")
+  albums: [Album!]! @relation(name: "AlbumsInPhoto")
 }
 type Album {
   id: UUID! @unique

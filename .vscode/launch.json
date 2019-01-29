@@ -4,32 +4,44 @@
   // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
   "version": "2.0.0",
   "configurations": [
+    // {
+    //   "name": "-> GQL-schema-to-hasura",
+    //   "type": "node",
+    //   "request": "launch",
+    //   "runtimeExecutable": "nodemon",
+    //   "args": ["src/index.ts"],
+    //   "runtimeArgs": [
+    //     "--inspect=33232",
+    //     "--nolazy",
+    //     "--watch",
+    //     "*",
+    //     "-r",
+    //     "ts-node/register"
+    //   ],
+    //   // "sourceMaps": true,
+    //   "restart": true,
+    //   "protocol": "inspector"
+    // },
     {
-      "name": "Launch",
       "type": "node",
-      "request": "launch",
-      "runtimeExecutable": "nodemon",
-      "args": ["src/index.ts"],
-      "runtimeArgs": [
-        "--inspect=33232",
-        "--watch",
-        "src/index.ts",
-        "-r",
-        "ts-node/register"
-      ],
-      "sourceMaps": true,
+      "request": "attach",
+      "name": "attach to GQL",
+      "port": 32211,
       "restart": true,
-
-      "cwd": "${workspaceRoot}",
       "protocol": "inspector"
     },
     {
       "type": "node",
-      "request": "attach",
-      "name": "Node: Nodemon",
-      "processId": "${command:PickProcess}",
+      "request": "launch",
+      "name": "Jest Tests",
+      "program": "${workspaceRoot}\\node_modules\\jest\\bin\\jest.js",
+      "args": ["-i", "--watch"],
       "restart": true,
-      "protocol": "inspector"
+      "protocol": "inspector",
+      // "preLaunchTask": "build",
+      "internalConsoleOptions": "openOnSessionStart"
+      // "outFiles": ["${workspaceRoot}/dist/**/*"]
+      // "envFile": "${workspaceRoot}/.env"
     }
   ]
 }

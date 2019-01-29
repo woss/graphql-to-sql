@@ -1,87 +1,99 @@
-import {Parser, DatabaseType, IGQLType} from 'prisma-datamodel'
-import {readFileSync} from 'fs'
-import {resolve} from 'path'
-import * as Sequelize from 'sequelize'
+import Sequelize from 'sequelize'
 
-var seq = new Sequelize('gql', 'root', 'prisma', {
+const seq = new Sequelize('gql', 'root', 'prisma', {
   host: 'localhost',
   port: 55432,
   dialect: 'postgres',
 })
 
-const schemaPath = resolve(__dirname, './schema.graphql')
-const schemaString = readFileSync(schemaPath).toString()
+import {resolve} from 'path'
 
-const parser = Parser.create(DatabaseType.postgres)
-const parsedSchema = parser.parseFromSchemaString(schemaString)
+import {IGQLType, IGQLField} from 'prisma-datamodel'
+import {
+  generateColumn,
+  parseSchemaFromString,
+  loadSchemaFromFile,
+} from './prisma'
+
+export let schemaString = loadSchemaFromFile(
+  resolve(__dirname, './test.schema.graphql'),
+)
+
+export const parsedSchema = parseSchemaFromString(schemaString)
+
 const {types} = parsedSchema
 
-const convertFieldsFromPrismaToOur = field => {
-  console.log(field)
-}
-/**
- * a list of tables that need to be generated
- */
-interface TableItem {
-  name: string
-  value: {}
+export const generateTableName = (field: string | IGQLField): string => {
+  if (typeof field === 'string') {
+    return field.toLowerCase()
+  }
+  const {type, name} = field
+  if (typeof type !== 'string') {
+    return type.name.toLowerCase()
+  } else {
+    return name.toLowerCase()
+  }
 }
 
-let tablesHolder = types.map(t => {
-  return {
-    name: t.name.toLowerCase(),
-    prisma: t,
-    relations: {},
-    fields: {},
+const sqlTables = {}
+types.map(table => {
+  let {name: modelName, fields: prismaFields} = table
+  console.log('Processing %s', modelName)
+  if (!sqlTables.hasOwnProperty(modelName)) {
+    if (prismaFields) {
+      let columnDefinition = {fields: {}, relations: {}}
+      prismaFields.forEach(field => {
+        console.log('   column %s', field.name)
+        const {fields, relations} = generateColumn(modelName, field)
+        if (relations) {
+          // if this is the case fields is the definition of linked model and we must add it to the table definition list, later we create foreign key
+          // maybe we reverse relation here???
+          const connectedTableName = generateTableName(field)
+          sqlTables[connectedTableName] = {fields}
+          columnDefinition.relations[field.name] = {
+            ...relations,
+            target: connectedTableName,
+          }
+        } else {
+          columnDefinition.fields[field.name] = fields
+        }
+      })
+
+      sqlTables[generateTableName(modelName)] = columnDefinition
+    }
+  }
+  console.log('-------------------------------------------------------')
+})
+let definedTables = {}
+
+// prepare definitions
+Object.keys(sqlTables).map(key => {
+  const {fields, relations} = sqlTables[key]
+
+  if (!definedTables[key]) {
+    definedTables[key] = seq.define(key, fields)
+  }
+  if (relations) {
+    Object.keys(relations).map(relationKey => {
+      const {isList, relationName, target} = relations[relationKey]
+      if (!definedTables[relationKey]) {
+        console.error('   Relation model %s is not processed yet', relationKey)
+        return
+      }
+      if (!isList) {
+        // 1:1 relation
+        definedTables[key].belongsTo(definedTables[target])
+      } else {
+        console.log('we have a list %', relationKey)
+        definedTables[key].hasMany(definedTables[target])
+      }
+    })
   }
 })
 
-tablesHolder.forEach(table => {
-  // const {name: tableName, fields} = type
-  // console.log('Processing %s', tableName)
-  // let tableFields = {}
-  // fields.map(field => {
-  //   const {
-  //     type,
-  //     name,
-  //     defaultValue,
-  //     isId,
-  //     isRequired,
-  //     isUnique,
-  //     relationName,
-  //     relatedField,
-  //   } = field
-  //   let ret = {
-  //     primaryKey: isId,
-  //     type: type === 'UUID' ? Sequelize.UUID : Sequelize.STRING,
-  //     field: name,
-  //     defaultValue: defaultValue || Sequelize.UUIDV4,
-  //     allowNull: !isRequired,
-  //     unique: isUnique,
-  //   }
-  //   // this is a relation
-  //   if (relationName) {
-  //     if (relatedField) {
-  //       const {isList, relatedField: _relatedField, name} = relatedField
-  //       console.log('Got List for the relation %s', name)
-  //     } else {
-  //       // 1:1 relation
-  //       const typeObj: any = Object.assign({}, type)
-  //       console.log('Got 1:1 for the relation %s', name)
-  //     }
-  //   } else {
-  //     tableFields[name] = ret
-  //   }
-  // })
-  //   tables.push({
-  //     name: tableName.toLocaleLowerCase(),
-  //     value: seq.define(tableName.toLocaleLowerCase(), tableFields),
-  //   })
-})
-
-// seq
-//   .sync({force: true})
-//   .then(d => {})
-//   .catch(err => {
-//     console.error(err)
-//   })
+seq
+  .sync({force: true})
+  .then(d => {})
+  .catch(err => {
+    console.error(err)
+  })
