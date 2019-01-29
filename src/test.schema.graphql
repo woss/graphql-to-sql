@@ -1,11 +1,12 @@
 type User {
-  id: UUID! @unique
+  id: ID! @unique
   albums: [album!]! @relation(name: "UserAlbum")
 }
 type Photo {
   id: UUID! @unique
   user: User @relation(name: "PhotoOwner")
   albums: [album!]! @relation(name: "PhotoInAlbum")
+  createdAt: DateTime!
 }
 type album {
   id: UUID! @unique

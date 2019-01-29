@@ -67,6 +67,10 @@ export const getSqlTypeFromPrisma = type => {
   }
 
   switch (type) {
+    case 'ID':
+      t = Sequelize.INTEGER
+      console.log('IDs are for now INTEGERS')
+      break
     case 'DateTime':
       t = Sequelize.DATE
       break
@@ -88,10 +92,10 @@ export const getDefaultValueFromPrisma = (defaultValue, type) => {
 
   switch (type) {
     case 'DateTime':
-      t = Sequelize.NOW
+      t = Sequelize.literal('CURRENT_TIMESTAMP')
       break
     case 'UUID':
-      t = Sequelize.UUIDV4
+      t = Sequelize.literal('uuid_generate_v4()')
       break
     default:
       t = defaultValue
@@ -101,13 +105,19 @@ export const getDefaultValueFromPrisma = (defaultValue, type) => {
 }
 
 export const transformField = (field: IGQLField) => {
-  const {isId, name, isRequired, type, defaultValue, isUnique} = field
+  const {isId, type, defaultValue, isUnique} = field
 
   let ret: DefineAttributeColumnOptions = {
     primaryKey: isId,
-    defaultValue: getDefaultValueFromPrisma(defaultValue, type),
+    defaultValue: defaultValue
+      ? Sequelize.literal(defaultValue)
+      : getDefaultValueFromPrisma(defaultValue, type),
     type: getSqlTypeFromPrisma(type),
     unique: isUnique,
+  }
+  if (type === 'ID') {
+    ret.autoIncrement = true
+    delete ret.defaultValue
   }
 
   return ret
