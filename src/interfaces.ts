@@ -1,11 +1,14 @@
-export interface ItableDefinition {
-  fields: {}
-  relations?: {
-    [x: string]: ITableRelation
-  }
+export interface ItableDefinitions {
+  [k: string]: ItableDefinition
 }
-export interface ISqlTable {
-  [x: string]: ItableDefinition
+export interface ItableDefinition {
+  name: string
+  columns: {
+    [columnName: string]: {}
+  }
+  relations?: {
+    [columnName: string]: ITableRelation
+  }
 }
 
 export interface ITableRelation {
@@ -13,4 +16,5 @@ export interface ITableRelation {
   relationFieldName: string
   isList: boolean
   target: string
+  source: string
 }

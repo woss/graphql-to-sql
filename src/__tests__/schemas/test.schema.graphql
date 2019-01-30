@@ -1,0 +1,21 @@
+type User {
+  id: ID! @unique
+  albums: [album!]!
+  # this shouldn't create a mapping table for hasura since photo already has userId as FK
+  # photos: [Photo!]! @relation(name: "UserPhoto")
+}
+type Rendition {
+  id: UUID! @unique
+  photo: Photo @relation(name: "PhotoRendition")
+}
+type Photo {
+  id: UUID! @unique
+  user: User @relation(name: "PhotoOwner")
+  rendition: Rendition @relation(name: "PhotoRendition")
+  albums: [album!]! @relation(name: "PhotoInAlbum")
+  createdAt: DateTime!
+}
+type album {
+  id: UUID! @unique
+  photos: [Photo!]! @relation(name: "PhotoInAlbum")
+}

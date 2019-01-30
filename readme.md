@@ -17,3 +17,6 @@ SELECT uuid_in(overlay(overlay(md5(random()::text || ':' || clock_timestamp()::t
 
 - Prisma uses CID for ID! type, we ahre using autoincrement INTEGER.
 - `UUID` is defaulted to `UUIDV4` and excepcts that DB supports `uuid_generate_v4()`
+
+extract the fk_relation names from sequlilze, then call hasura api
+if list type only ^
