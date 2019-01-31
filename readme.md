@@ -20,3 +20,22 @@ SELECT uuid_in(overlay(overlay(md5(random()::text || ':' || clock_timestamp()::t
 
 extract the fk_relation names from sequlilze, then call hasura api
 if list type only ^
+
+## On Prisma definition models
+
+`relatedField` is populated when relation is set on both types:
+
+Example:
+
+```graphql
+type A {
+  id: ID!
+  b: A @relation(name: "ABConnected")
+}
+type B {
+  id: ID!
+  a: A @relation(name: "ABConnected")
+}
+```
+
+`relationName` is a name of the `@relation` directive, in above case is `ABConnected`

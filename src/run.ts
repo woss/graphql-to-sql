@@ -1,10 +1,9 @@
 /**
  * this is helper for cli running, dev purposes only
  */
-import Sequelize from 'sequelize'
 import {resolve} from 'path'
 import Parsers from './parsers'
-import {DatabaseTypes} from './parsers/interfaces'
+import {DatabaseTypes, IAdaptersTypes} from './interfaces'
 import {readFileSync} from 'fs'
 
 const parser = Parsers.create()
@@ -12,7 +11,7 @@ parser.configure({
   schemaString: readFileSync(
     resolve(__dirname, './__tests__/schemas/test.schema.graphql'),
   ).toString(),
-  adapters: [],
+  adapters: [IAdaptersTypes.hasura],
   databaseType: DatabaseTypes.postgres,
 })
 

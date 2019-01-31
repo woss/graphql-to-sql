@@ -1,6 +1,19 @@
-export interface ItableDefinitions {
-  [k: string]: ItableDefinition
+export enum IAdaptersTypes {
+  hasura = 'hasura',
 }
+
+export enum ParserTypes {
+  prisma = 'prisma',
+}
+
+export enum DatabaseTypes {
+  postgres = 'postgres',
+}
+
+export interface ItableDefinitions {
+  [tableName: string]: ItableDefinition
+}
+
 export interface ItableDefinition {
   name: string
   columns: {
@@ -12,9 +25,15 @@ export interface ItableDefinition {
 }
 
 export interface ITableRelation {
-  relationName: string
-  relationFieldName: string
+  name: string
+  fieldName: string
   isList: boolean
   target: string
   source: string
+}
+
+export interface IParserConfig {
+  schemaString: string
+  adapters: IAdaptersTypes[]
+  databaseType: DatabaseTypes
 }

@@ -2,7 +2,6 @@ import {
   IGQLField,
   Parser as prismaParser,
   DatabaseType,
-  ISDL,
   IGQLType,
 } from 'prisma-datamodel'
 import Sequelize, {DefineAttributeColumnOptions} from 'sequelize'
@@ -10,22 +9,79 @@ import {
   ITableRelation,
   ItableDefinitions,
   ItableDefinition,
+  IParserConfig,
+  IAdaptersTypes,
 } from '../interfaces'
 import Parser from './parser'
-import {IParserConfig} from './interfaces'
+import Adapters from '../adapters'
+import HasuraAdapter from '../adapters/hasura'
 
 export default class PrismaParser extends Parser {
   private config: IParserConfig
   private tables: ItableDefinitions = {}
+
+  private getTable(tableName): ItableDefinition {
+    return this.tables[tableName]
+  }
+  private setTable(tableName, data: {} | ItableDefinition = {}) {
+    let table = this.getTable(tableName)
+    if (!table) {
+      table = this.tables[tableName] = {
+        columns: {},
+        name: tableName,
+        relations: {},
+      }
+    } else {
+      table = {...table, ...data}
+    }
+    return table
+  }
+
+  private getRelation(tableName: string, relationName: string): ITableRelation {
+    let table = this.getTable(tableName)
+    if (!table) {
+      table = this.setTable(tableName)
+    }
+    return table.relations[relationName]
+  }
+  private setRelation(
+    tableName: string,
+    relationName: string,
+    data: ITableRelation,
+  ) {
+    let table = this.getTable(tableName)
+    table.relations[relationName] = data
+    this.setTable(tableName, table)
+  }
+
   configure(config: IParserConfig) {
     this.config = config
   }
+
   parse() {
     const {types, comments} = this.parseSchemaFromString(
       this.config.schemaString,
     )
     this.resolveColumDefinitions(types)
     this.resolveTableRelations(types)
+    this.applyAdapters()
+    this.sequilize()
+  }
+
+  sequilize() {
+    console.log('do it')
+  }
+
+  applyAdapters() {
+    if (this.config.adapters.length > 1) {
+      throw new Error('Currently we are only supporting one adapter.')
+    }
+
+    for (const a of this.config.adapters) {
+      const adapter = Adapters.create(a)
+      adapter.cleanRelations(this.tables)
+    }
+    return
   }
 
   resolveColumDefinitions(types: IGQLType[]) {
@@ -34,116 +90,59 @@ export default class PrismaParser extends Parser {
     // Find all the colum names and transform them into format for sequalize
     // ignore the relations
     for (const typeA of types) {
-      const {name: tableName} = typeA
-      let table: ItableDefinition = {
-        name: tableName,
-        columns: {},
-      }
-      for (const fieldA of typeA.fields) {
-        // console.log(fieldA)
-        const column = generateColumn(fieldA)
+      const {name: tableName, fields} = typeA
+      let table: ItableDefinition = this.setTable(tableName)
+
+      for (const fieldA of fields) {
+        if (typeof fieldA.type !== 'string') {
+          continue // Assume relations
+        }
+        const column = transformField(fieldA)
         if (column) {
           table.columns[fieldA.name] = column
         }
       }
-      this.tables[tableName] = table
+      this.setTable(tableName, table)
     }
   }
-  resolveTableRelations(types: IGQLType[]) {
-    // borrowed from https://github.com/prisma/prisma/blob/master/cli/packages/prisma-datamodel/src/datamodel/parser/parser.ts#L251
 
-    // Connect all relations that are only one way.
-    // in graphql model Photo has a user but user doesn't have a photo
+  resolveTableRelations(types: IGQLType[]) {
+    // here is the code that resolves prisma relations, types and fields https://github.com/prisma/prisma/blob/master/cli/packages/prisma-datamodel/src/datamodel/parser/parser.ts#L251
+
+    // Connect all relations
     for (const typeA of types) {
       const {name: tableName} = typeA
-      let table: ItableDefinition = {...this.tables[tableName], relations: {}}
+
+      let table: ItableDefinition = this.setTable(tableName, {relations: {}})
+
       for (const fieldA of typeA.fields) {
         const {name: columnName, relationName} = fieldA
+
         if (typeof fieldA.type === 'string') {
           continue // Assume scalar
         }
-
-        if (fieldA.relationName !== null && fieldA.relatedField === null) {
-          // this is 1:n relationship
-          table.relations[columnName] = {
+        if (relationName) {
+          this.setRelation(tableName, columnName, {
             isList: fieldA.isList,
-            relationFieldName: columnName,
-            relationName,
+            fieldName: columnName,
+            name: relationName,
             target: fieldA.type.name,
-            source: typeA.name,
-          }
-          for (const fieldB of fieldA.type.fields) {
-            // This is the connection that makes connected tables
-            if (fieldB.relationName === fieldA.relationName) {
-              if (fieldB.type !== typeA) {
-                throw new Error(
-                  `Relation type mismatch for relation ${fieldA.relationName}`,
-                )
-              }
-              fieldA.relatedField = fieldB
-              fieldB.relatedField = fieldA
-              break
-            }
-          }
+            source: tableName,
+          })
         }
       }
+
       // now we have the list of relations that are only defined in one of the models.
       // Example: Photo -> User, but User !-> Photo in the gql definition
       // At the DB level, since there is a FK from Photo -> User, mapping table is not needed because we can always get the users photos by making the query in the photos table with USER.ID
-      this.tables[tableName] = table
+
+      this.setTable(tableName, table)
     }
   }
 
   parseSchemaFromString(schemaString: string) {
     const parser = prismaParser.create(DatabaseType[this.config.databaseType])
     return parser.parseFromSchemaString(schemaString)
-  }
-}
-export const generateColumn = (prismaField: IGQLField) => {
-  const {name, type} = prismaField
-  if (!isRelation(prismaField)) {
-    console.log('       generating column for %s', name)
-    const ret = transformField(prismaField)
-    return ret
-  }
-}
-
-export const generateRelation = (
-  prismaField: any | IGQLField,
-): ITableRelation => {
-  const {name, type} = prismaField
-  if (!isRelation(prismaField)) {
-    return
-  }
-
-  console.log('     relation encountered %s creating model defition', name)
-  const relation = processPrismaRelation(prismaField)
-  return relation
-}
-
-export const isRelation = (field: IGQLField): Boolean => {
-  const {type} = field
-  return typeof type === 'object'
-}
-
-export const processPrismaRelation = (
-  prismaField: IGQLField,
-): ITableRelation => {
-  // table fields and possible relations
-  const {fields, name: modelName} = prismaField.type as any
-  const {name: relationFieldName, relationName, isList} = prismaField
-  if (isList) {
-    console.log('     %s is a n:n relation', relationFieldName)
-  } else {
-    console.log('     %s is a 1:1 relation', relationFieldName)
-  }
-
-  return {
-    relationName,
-    relationFieldName,
-    isList,
-    target: modelName,
-    source: modelName,
   }
 }
 

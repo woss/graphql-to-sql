@@ -1,4 +1,4 @@
-import {IParserConfig} from './interfaces'
+import {IParserConfig} from '../interfaces'
 
 export default abstract class Parser {
   abstract configure(config: IParserConfig)
