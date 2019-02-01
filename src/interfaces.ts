@@ -1,3 +1,5 @@
+import {Sequelize, DefineModelAttributes, SyncOptions} from 'sequelize'
+
 export enum IAdaptersTypes {
   hasura = 'hasura',
 }
@@ -10,18 +12,10 @@ export enum DatabaseTypes {
   postgres = 'postgres',
 }
 
-export interface ItableDefinitions {
-  [tableName: string]: ItableDefinition
-}
-
 export interface ItableDefinition {
   name: string
-  columns: {
-    [columnName: string]: {}
-  }
-  relations?: {
-    [columnName: string]: ITableRelation
-  }
+  columns: DefineModelAttributes<any>
+  relations?: ITableRelation[]
 }
 
 export interface ITableRelation {
@@ -34,8 +28,12 @@ export interface ITableRelation {
 
 export interface IParserConfig {
   schemaString: string
-  adapters: IAdaptersTypes[]
-  databaseType: DatabaseTypes
+  adapter: IAdaptersTypes
+  database: {
+    type: DatabaseTypes
+    connection: Sequelize
+    syncOptions: SyncOptions
+  }
 }
 
 export interface KeyValue {

@@ -7,27 +7,28 @@ import {
 import Sequelize, {DefineAttributeColumnOptions} from 'sequelize'
 import {
   ITableRelation,
-  ItableDefinitions,
   ItableDefinition,
   IParserConfig,
   IAdaptersTypes,
-  KeyValue,
 } from '../interfaces'
 import Parser from './parser'
 import Adapters from '../adapters'
-import HasuraAdapter from '../adapters/hasura'
+import {generateTableName} from '../util/utils'
 
 export default class PrismaParser extends Parser {
-  private appliedAdapters: KeyValue[]
   private config: IParserConfig
-  private tables: ItableDefinitions = {}
+  private tables: ItableDefinition[] = []
+  sqlResult: any
 
+  private setTables(tables: ItableDefinition[]) {
+    this.tables = tables
+  }
   /**
    *
    * @param tableName
    */
   private getTable(tableName: string): ItableDefinition {
-    return this.tables[tableName]
+    return this.tables.find(t => t.name === tableName)
   }
 
   /**
@@ -36,17 +37,20 @@ export default class PrismaParser extends Parser {
    * @param data
    */
   private setTable(tableName: string, data: {} | ItableDefinition = {}) {
-    let table = this.getTable(tableName)
-    if (!table) {
-      table = this.tables[tableName] = {
+    if (!this.getTable(tableName)) {
+      this.tables.push({
         columns: {},
         name: tableName,
-        relations: {},
-      }
+        relations: [],
+      })
     } else {
-      table = {...table, ...data}
+      this.tables.map(t => {
+        if (t.name === tableName) {
+          t = {...t, ...data}
+        }
+      })
     }
-    return table
+    return this
   }
 
   /**
@@ -61,7 +65,16 @@ export default class PrismaParser extends Parser {
     data: ITableRelation,
   ) {
     let table = this.getTable(tableName)
-    table.relations[relationName] = data
+    if (table.relations.length === 0) {
+      table.relations.push(data)
+    } else {
+      table.relations.map(r => {
+        if (r.name === relationName) {
+          r = data
+        }
+      })
+    }
+
     this.setTable(tableName, table)
   }
 
@@ -72,50 +85,112 @@ export default class PrismaParser extends Parser {
   /**
    * Main entry point for the parser
    */
-  parse() {
+  async parse() {
     const {types} = this.parseSchemaFromString(this.config.schemaString)
 
+    this.createTables(types)
     this.resolveColumDefinitions(types)
     this.resolveTableRelations(types)
-    this.cleanupForAdapters()
-    this.sequilize()
-    this.applyAdapters()
+    const tablesWithoutBsRelations = this.cleanupForAdapters()
+    await this.sequilize(tablesWithoutBsRelations)
+    this.applyAdapter()
+  }
+  createTables(types: IGQLType[]): any {
+    types.map(t => {
+      this.setTable(t.name)
+    })
   }
 
-  sequilize() {
-    console.log('do it')
+  async sequilize(cleanedTables) {
+    return new Promise((resolve, reject) => {
+      let definedTables = {}
+      const {connection, syncOptions} = this.config.database
+
+      // prepare definitions
+      this.tables.forEach(table => {
+        const {columns, name} = table
+
+        if (!definedTables[name]) {
+          definedTables[name] = connection.define(name, columns, {
+            freezeTableName: true,
+          })
+        }
+      })
+
+      cleanedTables.forEach(table => {
+        const {name: tableName, relations} = table
+        if (relations) {
+          relations.forEach(relation => {
+            const {
+              isList,
+              name: relationName,
+              target,
+              source,
+              fieldName,
+            } = relation
+
+            console.log(
+              'Relation %s->%s through %s',
+              tableName,
+              target,
+              relationName,
+            )
+
+            if (!definedTables[target]) {
+              console.error('   Relation model %s is not processed yet', target)
+              return
+            }
+            if (!isList) {
+              // 1:1 relation
+              definedTables[source].belongsTo(definedTables[target], {
+                as: fieldName,
+              })
+            } else {
+              console.log('   hasMany', relationName)
+              definedTables[source].belongsToMany(definedTables[target], {
+                through: relationName,
+              })
+              // definedTables[target].belongsToMany(definedTables[key], {
+              //   through: relationName,
+              // })
+            }
+          })
+        }
+      })
+
+      connection
+        .query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"')
+        .spread((results, metadata) => {
+          console.log(results, metadata)
+        })
+      let that = this
+
+      connection
+        .sync(syncOptions)
+        .then(d => {
+          that.sqlResult = d
+          resolve(d)
+        })
+        .catch(error => {
+          reject(error)
+        })
+    })
   }
 
-  cleanupForAdapters() {
-    if (this.config.adapters.length > 1) {
-      throw new Error(
-        `Currently we are only supporting one adapter, ${
-          IAdaptersTypes.hasura
-        }`,
-      )
-    }
-
-    for (const a of this.config.adapters) {
-      const adapter = Adapters.create(a)
-      const tables = adapter.cleanup(this.tables)
-    }
-    return
+  cleanupForAdapters(): ItableDefinition[] {
+    const adapter = Adapters.create(this.config.adapter)
+    return adapter.cleanup(this.tables)
   }
 
-  applyAdapters() {
-    if (this.config.adapters.length > 1) {
-      throw new Error(
-        `Currently we are only supporting one adapter, ${
-          IAdaptersTypes.hasura
-        }`,
-      )
-    }
-
-    for (const a of this.config.adapters) {
-      const adapter = Adapters.create(a)
-      adapter.apply(this.tables)
-    }
-    return
+  applyAdapter() {
+    const adapter = Adapters.create(this.config.adapter)
+    adapter.configure({
+      schema: this.config.database.syncOptions.schema,
+      sqlResult: this.sqlResult,
+      tables: this.tables,
+      apiEndpoint: 'http://localhost:8080',
+    })
+    adapter.apply()
   }
 
   resolveColumDefinitions(types: IGQLType[]) {
@@ -125,7 +200,7 @@ export default class PrismaParser extends Parser {
     // ignore the relations
     for (const typeA of types) {
       const {name: tableName, fields} = typeA
-      let table: ItableDefinition = this.setTable(tableName)
+      let table: ItableDefinition = this.getTable(tableName)
 
       for (const fieldA of fields) {
         if (typeof fieldA.type !== 'string') {
@@ -147,7 +222,7 @@ export default class PrismaParser extends Parser {
     for (const typeA of types) {
       const {name: tableName} = typeA
 
-      let table: ItableDefinition = this.setTable(tableName, {relations: {}})
+      let table: ItableDefinition = this.getTable(tableName)
 
       for (const fieldA of typeA.fields) {
         const {name: columnName, relationName} = fieldA
@@ -175,7 +250,7 @@ export default class PrismaParser extends Parser {
   }
 
   parseSchemaFromString(schemaString: string) {
-    const parser = prismaParser.create(DatabaseType[this.config.databaseType])
+    const parser = prismaParser.create(DatabaseType[this.config.database.type])
     return parser.parseFromSchemaString(schemaString)
   }
   getSqlTypeFromPrisma(type) {

@@ -1,6 +1,8 @@
-import {ItableDefinitions} from '../interfaces'
+import {ItableDefinition, KeyValue} from '../interfaces'
+import {Sequelize} from 'sequelize'
 
 export default abstract class Adapter {
-  abstract cleanup(tables: ItableDefinitions): void
-  abstract apply(tables: ItableDefinitions): void
+  abstract configure(config: any): void
+  abstract cleanup(tables: ItableDefinition[]): void
+  abstract apply(sqlResult: Sequelize): void
 }

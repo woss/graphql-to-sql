@@ -1,5 +1,5 @@
 import {IAdaptersTypes} from '../interfaces'
-import HasuraAdapter from './HasuraAdapter'
+import HasuraAdapter from './hasura'
 
 export default abstract class Adapters {
   public static create(parserType: IAdaptersTypes = IAdaptersTypes.hasura) {
