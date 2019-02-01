@@ -37,3 +37,7 @@ export interface IParserConfig {
   adapters: IAdaptersTypes[]
   databaseType: DatabaseTypes
 }
+
+export interface KeyValue {
+  [k: string]: string
+}

@@ -1,18 +1,17 @@
 import {ItableDefinitions} from '../interfaces'
 import Adapter from './adapter'
-
 export default class HasuraAdapter extends Adapter {
+  private name = 'hasura'
   apply(tables: ItableDefinitions): void {
     throw new Error('Method not implemented.')
   }
   cleanup(tables: ItableDefinitions) {
     this.cleanRelations(tables)
   }
-  protected cleanRelations(tables: ItableDefinitions) {
+  cleanRelations(tables: ItableDefinitions) {
     Object.keys(tables).map(key => {
       const sourceTable = tables[key]
       const {relations: relationsA, name} = sourceTable
-
       Object.keys(relationsA).map(key => {
         const {isList, source, target} = relationsA[key]
         if (!isList) {
@@ -22,7 +21,6 @@ export default class HasuraAdapter extends Adapter {
             return Object.keys(relationsB).map(key => {
               const r = relationsB[key]
               const {target: targetB} = relationsA[key]
-
               return source === targetB
             })
           })
@@ -37,16 +35,15 @@ export default class HasuraAdapter extends Adapter {
       /**
            ```gql
               type A {
-                id: ID! 
+                id: ID!
               }
               type B {
                 id: ID!
-                a: A @relation(name: "AinB") 
+                a: A @relation(name: "AinB")
               }
            ```
            */
       // }
-
       // this is 1:n relationship
       /**
            ```gql

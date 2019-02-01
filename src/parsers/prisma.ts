@@ -11,19 +11,31 @@ import {
   ItableDefinition,
   IParserConfig,
   IAdaptersTypes,
+  KeyValue,
 } from '../interfaces'
 import Parser from './parser'
 import Adapters from '../adapters'
 import HasuraAdapter from '../adapters/hasura'
 
 export default class PrismaParser extends Parser {
+  private appliedAdapters: KeyValue[]
   private config: IParserConfig
   private tables: ItableDefinitions = {}
 
-  private getTable(tableName): ItableDefinition {
+  /**
+   *
+   * @param tableName
+   */
+  private getTable(tableName: string): ItableDefinition {
     return this.tables[tableName]
   }
-  private setTable(tableName, data: {} | ItableDefinition = {}) {
+
+  /**
+   *
+   * @param tableName
+   * @param data
+   */
+  private setTable(tableName: string, data: {} | ItableDefinition = {}) {
     let table = this.getTable(tableName)
     if (!table) {
       table = this.tables[tableName] = {
@@ -37,13 +49,12 @@ export default class PrismaParser extends Parser {
     return table
   }
 
-  private getRelation(tableName: string, relationName: string): ITableRelation {
-    let table = this.getTable(tableName)
-    if (!table) {
-      table = this.setTable(tableName)
-    }
-    return table.relations[relationName]
-  }
+  /**
+   *
+   * @param tableName
+   * @param relationName
+   * @param data
+   */
   private setRelation(
     tableName: string,
     relationName: string,
@@ -58,28 +69,51 @@ export default class PrismaParser extends Parser {
     this.config = config
   }
 
+  /**
+   * Main entry point for the parser
+   */
   parse() {
-    const {types, comments} = this.parseSchemaFromString(
-      this.config.schemaString,
-    )
+    const {types} = this.parseSchemaFromString(this.config.schemaString)
+
     this.resolveColumDefinitions(types)
     this.resolveTableRelations(types)
-    this.applyAdapters()
+    this.cleanupForAdapters()
     this.sequilize()
+    this.applyAdapters()
   }
 
   sequilize() {
     console.log('do it')
   }
 
-  applyAdapters() {
+  cleanupForAdapters() {
     if (this.config.adapters.length > 1) {
-      throw new Error('Currently we are only supporting one adapter.')
+      throw new Error(
+        `Currently we are only supporting one adapter, ${
+          IAdaptersTypes.hasura
+        }`,
+      )
     }
 
     for (const a of this.config.adapters) {
       const adapter = Adapters.create(a)
-      adapter.cleanRelations(this.tables)
+      const tables = adapter.cleanup(this.tables)
+    }
+    return
+  }
+
+  applyAdapters() {
+    if (this.config.adapters.length > 1) {
+      throw new Error(
+        `Currently we are only supporting one adapter, ${
+          IAdaptersTypes.hasura
+        }`,
+      )
+    }
+
+    for (const a of this.config.adapters) {
+      const adapter = Adapters.create(a)
+      adapter.apply(this.tables)
     }
     return
   }
@@ -97,7 +131,7 @@ export default class PrismaParser extends Parser {
         if (typeof fieldA.type !== 'string') {
           continue // Assume relations
         }
-        const column = transformField(fieldA)
+        const column = this.transformField(fieldA)
         if (column) {
           table.columns[fieldA.name] = column
         }
@@ -144,67 +178,64 @@ export default class PrismaParser extends Parser {
     const parser = prismaParser.create(DatabaseType[this.config.databaseType])
     return parser.parseFromSchemaString(schemaString)
   }
-}
+  getSqlTypeFromPrisma(type) {
+    let t = null
+    if (typeof type !== 'string') {
+      return t
+    }
 
-export const getSqlTypeFromPrisma = type => {
-  let t = null
-  if (typeof type !== 'string') {
+    switch (type) {
+      case 'ID':
+        t = Sequelize.INTEGER
+        console.log('IDs are for now INTEGERS')
+        break
+      case 'DateTime':
+        t = Sequelize.DATE
+        break
+      case 'Int':
+        t = Sequelize.INTEGER
+        break
+      default:
+        t = Sequelize[type.toUpperCase()]
+        break
+    }
     return t
   }
+  getDefaultValueFromPrisma(defaultValue, type) {
+    let t = null
+    if (typeof type !== 'string') {
+      return t
+    }
 
-  switch (type) {
-    case 'ID':
-      t = Sequelize.INTEGER
-      console.log('IDs are for now INTEGERS')
-      break
-    case 'DateTime':
-      t = Sequelize.DATE
-      break
-    case 'Int':
-      t = Sequelize.INTEGER
-      break
-    default:
-      t = Sequelize[type.toUpperCase()]
-      break
-  }
-  return t
-}
-
-export const getDefaultValueFromPrisma = (defaultValue, type) => {
-  let t = null
-  if (typeof type !== 'string') {
+    switch (type) {
+      case 'DateTime':
+        t = Sequelize.literal('CURRENT_TIMESTAMP')
+        break
+      case 'UUID':
+        t = Sequelize.literal('uuid_generate_v4()')
+        break
+      default:
+        t = defaultValue
+        break
+    }
     return t
   }
+  transformField(field: IGQLField) {
+    const {isId, type, defaultValue, isUnique} = field
 
-  switch (type) {
-    case 'DateTime':
-      t = Sequelize.literal('CURRENT_TIMESTAMP')
-      break
-    case 'UUID':
-      t = Sequelize.literal('uuid_generate_v4()')
-      break
-    default:
-      t = defaultValue
-      break
+    let ret: DefineAttributeColumnOptions = {
+      primaryKey: isId,
+      defaultValue: defaultValue
+        ? Sequelize.literal(defaultValue)
+        : this.getDefaultValueFromPrisma(defaultValue, type),
+      type: this.getSqlTypeFromPrisma(type),
+      unique: isUnique,
+    }
+    if (type === 'ID') {
+      ret.autoIncrement = true
+      delete ret.defaultValue
+    }
+
+    return ret
   }
-  return t
-}
-
-export const transformField = (field: IGQLField) => {
-  const {isId, type, defaultValue, isUnique} = field
-
-  let ret: DefineAttributeColumnOptions = {
-    primaryKey: isId,
-    defaultValue: defaultValue
-      ? Sequelize.literal(defaultValue)
-      : getDefaultValueFromPrisma(defaultValue, type),
-    type: getSqlTypeFromPrisma(type),
-    unique: isUnique,
-  }
-  if (type === 'ID') {
-    ret.autoIncrement = true
-    delete ret.defaultValue
-  }
-
-  return ret
 }
