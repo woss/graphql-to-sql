@@ -1,18 +1,18 @@
 {
-  "name": "graphql-to-sql-parser",
+  "name": "graphql-to-sql",
   "version": "1.0.0",
-  "main": "index.js",
   "license": "MIT",
   "scripts": {
     "prestart": "node preflight.js",
     "start": "nodemon  --watch * -r ts-node/register --inspect=32211 src/run.ts",
     "test": "jest --watch",
-    "docs": "typedoc --exclude ./src/__tests__/**/* --out ./docs ./src"
+    "docs": "typedoc --exclude ./src/__tests__/**/* --out ./docs ./src",
+    "docs:deploy": "yarn docs && cd ./docs && now --name graphql-to-sql --public"
   },
   "dependencies": {
     "axios": "^0.18.0",
-    "pg": "^7.8.0",
     "debug": "^4.1.1",
+    "pg": "^7.8.0",
     "prisma-datamodel": "^1.25.3",
     "sequelize": "^4.42.0"
   },
@@ -25,6 +25,7 @@
     "dotenv": "^6.2.0",
     "jest": "^24.0.0",
     "nodemon": "^1.18.9",
+    "now": "^13.1.2",
     "ts-node": "^8.0.2",
     "typedoc": "^0.14.2",
     "typescript": "^3.2.4"

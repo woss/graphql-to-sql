@@ -1,34 +1,4 @@
-# package directories
+
 node_modules
-jspm_packages
-
-# docker volumes
-dbdata
-redis_cache
-
-# Serverless directories
-.serverless
-
-# general stuff
-.idea
-dist
 .env
-.webpack
-.history
-db
-RAN/
-*.log
-lambda/.nyc_output
-terraform/.terraform
-terraform/.terraform.tfstate.lock.info
-lambda/.env-dev
-lambda/.env-local
-*.DS_Store
-workspace-win.code-workspace
-client/flow-typed/npm
-ipfs/compose
-services/api/.build
-services/.build
-.nyc_output
-coverage
 docs

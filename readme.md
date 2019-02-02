@@ -1,14 +1,16 @@
-# Title
+# graphql to sql
 
-https://stackoverflow.com/questions/12505158/generating-a-uuid-in-postgres-for-insert-statement
+Turn your [Prisma](https:prisma.io) GraphQL models into SQL tables without [Prisma](https:prisma.io) server.
 
-https://www.postgresql.org/docs/current/uuid-ossp.html
-generate uuid
+Hook up adapter and do more magic.
 
-```sql
-SELECT uuid_in(overlay(overlay(md5(random()::text || ':' || clock_timestamp()::text) placing '4' from 13) placing to_hex(floor(random()*(11-8+1) + 8)::int)::text from 17)::cstring);
+Currently only [Hasura](https://hasura.io) is supported, more will come if needed.
 
-```
+## Documentation
+
+To generate local documentation run `yarn docs` in root of this module.
+
+Online docs is located [here](https://graphql-to-sql.now.sh)
 
 ## Debug && Development
 
