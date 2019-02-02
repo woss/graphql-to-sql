@@ -10,7 +10,7 @@ Currently only [Hasura](https://hasura.io) is supported, more will come if neede
 
 To generate local documentation run `yarn docs` in root of this module.
 
-Online docs is located [here](https://graphql-to-sql.now.sh)
+Online docs are located [here](https://graphql-to-sql.now.sh)
 
 ## Debug && Development
 
