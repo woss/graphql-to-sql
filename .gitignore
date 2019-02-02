@@ -31,3 +31,4 @@ services/api/.build
 services/.build
 .nyc_output
 coverage
+docs

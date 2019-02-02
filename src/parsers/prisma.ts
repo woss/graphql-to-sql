@@ -5,24 +5,19 @@ import {
   IGQLType,
 } from 'prisma-datamodel'
 import Sequelize, {DefineAttributeColumnOptions} from 'sequelize'
-import {
-  ITableRelation,
-  ItableDefinition,
-  IParserConfig,
-  IAdaptersTypes,
-} from '../interfaces'
+import {ITableRelation, ItableDefinition, IParserConfig} from '../interfaces'
 import Parser from './parser'
 import Adapters from '../adapters'
-import {generateTableName} from '../util/utils'
+import debug from 'debug'
+import {appLog} from '..'
 
 export default class PrismaParser extends Parser {
   private config: IParserConfig
   private tables: ItableDefinition[] = []
-  sqlResult: any
+  private log: debug.IDebugger
+  private sqlLog: debug.IDebugger
+  private sqlResult: any
 
-  private setTables(tables: ItableDefinition[]) {
-    this.tables = tables
-  }
   /**
    *
    * @param tableName
@@ -68,37 +63,41 @@ export default class PrismaParser extends Parser {
     if (table.relations.length === 0) {
       table.relations.push(data)
     } else {
-      table.relations.map(r => {
-        if (r.name === relationName) {
-          r = data
-        }
-      })
+      table.relations.push(data)
     }
 
     this.setTable(tableName, table)
   }
 
+  setTables(types: IGQLType[]): any {
+    types.map(t => {
+      this.setTable(t.name)
+    })
+  }
   configure(config: IParserConfig) {
     this.config = config
+    this.log = debug('GQL2SQL:parser:prisma')
+    this.sqlLog = debug('GQL2SQL:parser:sequilize')
   }
 
   /**
    * Main entry point for the parser
    */
   async parse() {
-    const {types} = this.parseSchemaFromString(this.config.schemaString)
+    try {
+      const {types} = this.parseSchemaFromString(this.config.schemaString)
 
-    this.createTables(types)
-    this.resolveColumDefinitions(types)
-    this.resolveTableRelations(types)
-    const tablesWithoutBsRelations = this.cleanupForAdapters()
-    await this.sequilize(tablesWithoutBsRelations)
-    this.applyAdapter()
-  }
-  createTables(types: IGQLType[]): any {
-    types.map(t => {
-      this.setTable(t.name)
-    })
+      appLog(`We have ${types.length} types to process. `)
+
+      this.setTables(types)
+      this.resolveColumDefinitions(types)
+      this.resolveTableRelations(types)
+      const tablesWithoutBsRelations = this.cleanRelations()
+      await this.sequilize(tablesWithoutBsRelations)
+      this.applyAdapter()
+    } catch (error) {
+      appLog('ERROR ::: ', error)
+    }
   }
 
   async sequilize(cleanedTables) {
@@ -107,7 +106,7 @@ export default class PrismaParser extends Parser {
       const {connection, syncOptions} = this.config.database
 
       // prepare definitions
-      this.tables.forEach(table => {
+      cleanedTables.forEach(table => {
         const {columns, name} = table
 
         if (!definedTables[name]) {
@@ -129,40 +128,42 @@ export default class PrismaParser extends Parser {
               fieldName,
             } = relation
 
-            console.log(
-              'Relation %s->%s through %s',
-              tableName,
-              target,
-              relationName,
-            )
-
             if (!definedTables[target]) {
-              console.error('   Relation model %s is not processed yet', target)
+              this.log('Relation model %s is not processed yet', target)
               return
             }
+
             if (!isList) {
+              this.sqlLog(
+                'Creating relation %s 1->n %s through %s',
+                tableName,
+                target,
+                fieldName,
+              )
+
               // 1:1 relation
               definedTables[source].belongsTo(definedTables[target], {
                 as: fieldName,
               })
             } else {
-              console.log('   hasMany', relationName)
+              this.sqlLog(
+                'Creating relation %s n->m %s through %s',
+                tableName,
+                target,
+                fieldName,
+              )
               definedTables[source].belongsToMany(definedTables[target], {
                 through: relationName,
               })
-              // definedTables[target].belongsToMany(definedTables[key], {
-              //   through: relationName,
-              // })
             }
           })
         }
       })
 
-      connection
-        .query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"')
-        .spread((results, metadata) => {
-          console.log(results, metadata)
-        })
+      // Create extension that will be used to create uuids
+      connection.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"')
+
+      // Promise has issue with this being this, so that is new this :D
       let that = this
 
       connection
@@ -177,22 +178,22 @@ export default class PrismaParser extends Parser {
     })
   }
 
-  cleanupForAdapters(): ItableDefinition[] {
-    const adapter = Adapters.create(this.config.adapter)
-    return adapter.cleanup(this.tables)
-  }
-
   applyAdapter() {
     const adapter = Adapters.create(this.config.adapter)
     adapter.configure({
       schema: this.config.database.syncOptions.schema,
       sqlResult: this.sqlResult,
       tables: this.tables,
-      apiEndpoint: 'http://localhost:8080',
+      debug: this.config['debug'],
     })
+
     adapter.apply()
   }
 
+  /**
+   * Resolves the type connectionsfrom prisma to simpler format we can use
+   * @param types IGQLType[]
+   */
   resolveColumDefinitions(types: IGQLType[]) {
     // borrowed from https://github.com/prisma/prisma/blob/master/cli/packages/prisma-datamodel/src/datamodel/parser/parser.ts#L236
 
@@ -215,29 +216,86 @@ export default class PrismaParser extends Parser {
     }
   }
 
+  /**
+   * Resolves the type connectionsfrom prisma to simpler format we can use
+   * @param types
+   */
   resolveTableRelations(types: IGQLType[]) {
     // here is the code that resolves prisma relations, types and fields https://github.com/prisma/prisma/blob/master/cli/packages/prisma-datamodel/src/datamodel/parser/parser.ts#L251
 
     // Connect all relations
-    for (const typeA of types) {
-      const {name: tableName} = typeA
+    for (const firstLevelType of types) {
+      const {name: tableName} = firstLevelType
+
+      let t = firstLevelType
 
       let table: ItableDefinition = this.getTable(tableName)
 
-      for (const fieldA of typeA.fields) {
-        const {name: columnName, relationName} = fieldA
+      for (const firstLevelField of firstLevelType.fields) {
+        const {
+          name: columnName,
+          relationName,
+          relatedField,
+          isList,
+          type,
+        } = firstLevelField
 
-        if (typeof fieldA.type === 'string') {
+        if (typeof type === 'string') {
           continue // Assume scalar
         }
-        if (relationName) {
+
+        const {name: targetTable} = type
+
+        if (relationName && !relatedField) {
+          // if  relatedField is empty in prisma schema means that we do not have
+          // the relationName declared in the table that we are connecting with
+          this.log('%s to %s through %s', tableName, targetTable, columnName)
           this.setRelation(tableName, columnName, {
-            isList: fieldA.isList,
+            isList: isList,
             fieldName: columnName,
             name: relationName,
-            target: fieldA.type.name,
+            target: targetTable,
             source: tableName,
           })
+        } else if (relationName && relatedField) {
+          // if  relatedField is empty in prisma schema means that we do not have
+          // the relationName declared in the table that we are connecting with
+          // this means we have many-to-many relation
+          this.log(
+            '%s to %s through %s via %s',
+            tableName,
+            targetTable,
+            columnName,
+            relationName,
+          )
+          this.setRelation(tableName, columnName, {
+            isList: isList,
+            fieldName: columnName,
+            name: relationName,
+            target: targetTable,
+            source: tableName,
+          })
+
+          // this.log(
+          //   '%s to %s through %s via %s',
+          //   targetTable,
+          //   tableName,
+          //   relatedField.name,
+          //   relatedField.relationName,
+          // )
+          // // let's set the relation in other direction
+          // this.setRelation(targetTable, columnName, {
+          //   isList: relatedField.isList,
+          //   fieldName: relatedField.name,
+          //   name: relatedField.relationName,
+          //   target: tableName,
+          //   source: targetTable,
+          // })
+        } else {
+          this.log(
+            'Skipping .... %s type does not have a relation',
+            targetTable,
+          )
         }
       }
 
@@ -253,6 +311,7 @@ export default class PrismaParser extends Parser {
     const parser = prismaParser.create(DatabaseType[this.config.database.type])
     return parser.parseFromSchemaString(schemaString)
   }
+
   getSqlTypeFromPrisma(type) {
     let t = null
     if (typeof type !== 'string') {
@@ -262,7 +321,7 @@ export default class PrismaParser extends Parser {
     switch (type) {
       case 'ID':
         t = Sequelize.INTEGER
-        console.log('IDs are for now INTEGERS')
+        this.log('IDs are for now INTEGERS')
         break
       case 'DateTime':
         t = Sequelize.DATE
@@ -276,6 +335,7 @@ export default class PrismaParser extends Parser {
     }
     return t
   }
+
   getDefaultValueFromPrisma(defaultValue, type) {
     let t = null
     if (typeof type !== 'string') {
@@ -295,6 +355,7 @@ export default class PrismaParser extends Parser {
     }
     return t
   }
+
   transformField(field: IGQLField) {
     const {isId, type, defaultValue, isUnique} = field
 
@@ -312,5 +373,45 @@ export default class PrismaParser extends Parser {
     }
 
     return ret
+  }
+  protected cleanRelations(): ItableDefinition[] {
+    const cleanedTables = []
+    this.tables.map(sourceTable => {
+      let {relations: relationsA, ...rest} = sourceTable
+      let relations = []
+      relationsA.forEach(firstLevelRelation => {
+        const {isList, source, target} = firstLevelRelation
+
+        if (!isList) {
+          // find relation table based on target field
+          const relatedTable = this.tables.find(t => t.name === target)
+          if (relatedTable) {
+            const relatedRelation = relatedTable.relations.find(
+              t => t.target === source && t.source === target,
+            )
+
+            if (relatedRelation) {
+              const relationAlreadyProcessed = cleanedTables.find(t => {
+                if (t.name === target) {
+                  return t.relations.find(r => r.name === relatedRelation.name)
+                }
+              })
+              if (!relationAlreadyProcessed) {
+                relations.push(firstLevelRelation)
+              }
+            } else {
+              relations.push(firstLevelRelation)
+            }
+          }
+        } else {
+          relations.push(firstLevelRelation)
+        }
+      })
+      cleanedTables.push({
+        ...rest,
+        relations,
+      })
+    })
+    return cleanedTables
   }
 }
