@@ -43,10 +43,6 @@ export default class HasuraAdapter extends Adapter {
   private error: debug.IDebugger
   private apiLog: debug.IDebugger
 
-  /**
-   * Configure the adapter
-   * @param config Configuration
-   */
   configure(config: IHasuraConfig): void {
     this.config = config
     this.log = debug('GQL2SQL:adapter:hasura')
@@ -70,9 +66,7 @@ export default class HasuraAdapter extends Adapter {
       })
     }
   }
-  /**
-   * Where magic happens
-   */
+
   async apply() {
     try {
       await this.apiClearMetadata()
@@ -277,13 +271,5 @@ export default class HasuraAdapter extends Adapter {
         },
       },
     )
-  }
-  /**
-   * Wrapper for all cleaning needed
-   * @notUsed
-   */
-  cleanup() {
-    appLog('cleanup called in hasura')
-    return null
   }
 }

@@ -64,4 +64,6 @@ parser.configure({
   },
 })
 
-parser.parse()
+parser.run().catch(err => {
+  console.error(err)
+})

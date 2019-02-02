@@ -69,7 +69,7 @@ export default class PrismaParser extends Parser {
     this.setTable(tableName, table)
   }
 
-  setTables(types: IGQLType[]): any {
+  private setTables(types: IGQLType[]): any {
     types.map(t => {
       this.setTable(t.name)
     })
@@ -80,10 +80,7 @@ export default class PrismaParser extends Parser {
     this.sqlLog = debug('GQL2SQL:parser:sequilize')
   }
 
-  /**
-   * Main entry point for the parser
-   */
-  async parse() {
+  async run() {
     try {
       const {types} = this.parseSchemaFromString(this.config.schemaString)
 
@@ -100,7 +97,13 @@ export default class PrismaParser extends Parser {
     }
   }
 
-  async sequilize(cleanedTables) {
+  /**
+   * Loop through tables and runs Sequilize to generate table definitions and ultimately tables
+   *
+   * Calls raw query to create extension `uuid-ossp` needed for generation of UUIDV4
+   * @param cleanedTables ItableDefinition[]
+   */
+  async sequilize(cleanedTables: ItableDefinition[]) {
     return new Promise((resolve, reject) => {
       let definedTables = {}
       const {connection, syncOptions} = this.config.database
@@ -178,6 +181,9 @@ export default class PrismaParser extends Parser {
     })
   }
 
+  /**
+   * Apply the adapter
+   */
   applyAdapter() {
     const adapter = Adapters.create(this.config.adapter)
     adapter.configure({
@@ -191,11 +197,11 @@ export default class PrismaParser extends Parser {
   }
 
   /**
-   * Resolves the type connectionsfrom prisma to simpler format we can use
+   * Resolves the column definitions from prisma to simpler format we can use
    * @param types IGQLType[]
    */
   resolveColumDefinitions(types: IGQLType[]) {
-    // borrowed from https://github.com/prisma/prisma/blob/master/cli/packages/prisma-datamodel/src/datamodel/parser/parser.ts#L236
+    // logic inspired from https://github.com/prisma/prisma/blob/master/cli/packages/prisma-datamodel/src/datamodel/parser/parser.ts#L236
 
     // Find all the colum names and transform them into format for sequalize
     // ignore the relations
@@ -247,8 +253,10 @@ export default class PrismaParser extends Parser {
         const {name: targetTable} = type
 
         if (relationName && !relatedField) {
-          // if  relatedField is empty in prisma schema means that we do not have
-          // the relationName declared in the table that we are connecting with
+          /**
+           * if  relatedField is empty in prisma schema means that we do not have
+           * the relationName declared in the table that we are connecting with
+           */
           this.log('%s to %s through %s', tableName, targetTable, columnName)
           this.setRelation(tableName, columnName, {
             isList: isList,
@@ -258,9 +266,11 @@ export default class PrismaParser extends Parser {
             source: tableName,
           })
         } else if (relationName && relatedField) {
-          // if  relatedField is empty in prisma schema means that we do not have
-          // the relationName declared in the table that we are connecting with
-          // this means we have many-to-many relation
+          /**
+           * if  relatedField is empty in prisma schema means that we do not have
+           * the relationName declared in the table that we are connecting with
+           * this means we have many-to-many relation
+           */
           this.log(
             '%s to %s through %s via %s',
             tableName,
@@ -275,22 +285,6 @@ export default class PrismaParser extends Parser {
             target: targetTable,
             source: tableName,
           })
-
-          // this.log(
-          //   '%s to %s through %s via %s',
-          //   targetTable,
-          //   tableName,
-          //   relatedField.name,
-          //   relatedField.relationName,
-          // )
-          // // let's set the relation in other direction
-          // this.setRelation(targetTable, columnName, {
-          //   isList: relatedField.isList,
-          //   fieldName: relatedField.name,
-          //   name: relatedField.relationName,
-          //   target: tableName,
-          //   source: targetTable,
-          // })
         } else {
           this.log(
             'Skipping .... %s type does not have a relation',
@@ -298,10 +292,6 @@ export default class PrismaParser extends Parser {
           )
         }
       }
-
-      // now we have the list of relations that are only defined in one of the models.
-      // Example: Photo -> User, but User !-> Photo in the gql definition
-      // At the DB level, since there is a FK from Photo -> User, mapping table is not needed because we can always get the users photos by making the query in the photos table with USER.ID
 
       this.setTable(tableName, table)
     }

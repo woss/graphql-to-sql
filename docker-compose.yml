@@ -22,10 +22,10 @@ services:
     restart: always
     env_file: .env
     environment:
-      POSTGRES_USER: '${DB_USER}'
-      POSTGRES_PASSWORD: '${DB_PASSWORD}'
+      POSTGRES_USER: '${POSTGRES_USER}'
+      POSTGRES_PASSWORD: '${POSTGRES_PASSWORD}'
     ports:
-      - '${DB_PORT_FORWARD}:${DB_PORT}'
+      - '${POSTGRES_PORT_FORWARDED}:${POSTGRES_PORT}'
     volumes:
       - postgres_data:/var/lib/postgresql/data
   pgAdmin:
@@ -39,7 +39,7 @@ services:
       - '9090:80'
     env_file: .env
     environment:
-      PGADMIN_DEFAULT_EMAIL: '${DB_USER}'
-      PGADMIN_DEFAULT_PASSWORD: '${DB_PASSWORD}'
+      PGADMIN_DEFAULT_EMAIL: '${POSTGRES_USER}'
+      PGADMIN_DEFAULT_PASSWORD: '${POSTGRES_PASSWORD}'
 volumes:
   postgres_data:

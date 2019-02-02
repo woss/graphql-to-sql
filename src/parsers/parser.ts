@@ -1,6 +1,13 @@
 import {IParserConfig} from '../interfaces'
 
 export default abstract class Parser {
-  abstract configure(config: IParserConfig)
-  abstract parse()
+  /**
+   * Configure the parser
+   * @param config IParserConfig
+   */
+  abstract configure(config: IParserConfig): void
+  /**
+   * Where magic happens
+   */
+  abstract run(): void
 }
