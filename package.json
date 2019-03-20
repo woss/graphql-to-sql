@@ -4,14 +4,16 @@
   "license": "MIT",
   "scripts": {
     "prestart": "node preflight.js",
-    "start": "nodemon  --watch * -r ts-node/register --inspect=32211 src/run.ts",
+    "start": "export DEBUG=GQL2SQL* && nodemon  --watch src -r ts-node/register --inspect=32211 src/run.ts",
     "test": "jest --watch",
     "docs": "typedoc --exclude ./src/__tests__/**/* --out ./docs ./src",
     "docs:deploy": "yarn docs && cd ./docs && now --name graphql-to-sql --public"
   },
   "dependencies": {
     "axios": "^0.18.0",
+    "commander": "^2.19.0",
     "debug": "^4.1.1",
+    "inquirer": "^6.2.2",
     "pg": "^7.8.0",
     "prisma-datamodel": "^1.25.3",
     "sequelize": "^4.42.0"

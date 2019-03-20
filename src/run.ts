@@ -40,26 +40,28 @@ console.log(
   POSTGRES_PORT_FORWARDED,
   POSTGRES_LOGGING,
 )
-
+const schema = 'public'
 const seq = new sequelize(POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD, {
   host: POSTGRES_HOST,
   port: parseInt(POSTGRES_PORT_FORWARDED || POSTGRES_PORT, 10),
   logging: !!POSTGRES_LOGGING,
   dialect: 'postgres',
+  define: {
+    timestamps: true,
+  },
 })
 
+// seq.createSchema(schema, {})
+
 parser.configure({
-  schemaString: readFileSync(
-    resolve(__dirname, './__tests__/schemas/test.graphql'),
-  ).toString(),
+  schemaString: readFileSync(resolve(__dirname, '../schema.gql')).toString(),
   adapter: IAdaptersTypes.hasura,
   debug: true,
   database: {
     type: DatabaseTypes.postgres,
     connection: seq,
     syncOptions: {
-      force: true,
-      schema: 'public',
+      schema,
     },
   },
 })

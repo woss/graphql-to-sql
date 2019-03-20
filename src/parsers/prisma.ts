@@ -82,7 +82,9 @@ export default class PrismaParser extends Parser {
 
   async run() {
     try {
-      const {types} = this.parseSchemaFromString(this.config.schemaString)
+      // parse the Graphql SDL
+      const parsed = this.parseSchemaFromString(this.config.schemaString)
+      const {types} = parsed
 
       appLog(`We have ${types.length} types to process. `)
 
@@ -95,90 +97,6 @@ export default class PrismaParser extends Parser {
     } catch (error) {
       appLog('ERROR ::: ', error)
     }
-  }
-
-  /**
-   * Loop through tables and runs Sequilize to generate table definitions and ultimately tables
-   *
-   * Calls raw query to create extension `uuid-ossp` needed for generation of UUIDV4
-   * @param cleanedTables ItableDefinition[]
-   */
-  async sequilize(cleanedTables: ItableDefinition[]) {
-    return new Promise((resolve, reject) => {
-      let definedTables = {}
-      const {connection, syncOptions} = this.config.database
-
-      // prepare definitions
-      cleanedTables.forEach(table => {
-        const {columns, name} = table
-
-        if (!definedTables[name]) {
-          definedTables[name] = connection.define(name, columns, {
-            freezeTableName: true,
-          })
-        }
-      })
-
-      cleanedTables.forEach(table => {
-        const {name: tableName, relations} = table
-        if (relations) {
-          relations.forEach(relation => {
-            const {
-              isList,
-              name: relationName,
-              target,
-              source,
-              fieldName,
-            } = relation
-
-            if (!definedTables[target]) {
-              this.log('Relation model %s is not processed yet', target)
-              return
-            }
-
-            if (!isList) {
-              this.sqlLog(
-                'Creating relation %s 1->n %s through %s',
-                tableName,
-                target,
-                fieldName,
-              )
-
-              // 1:1 relation
-              definedTables[source].belongsTo(definedTables[target], {
-                as: fieldName,
-              })
-            } else {
-              this.sqlLog(
-                'Creating relation %s n->m %s through %s',
-                tableName,
-                target,
-                fieldName,
-              )
-              definedTables[source].belongsToMany(definedTables[target], {
-                through: relationName,
-              })
-            }
-          })
-        }
-      })
-
-      // Create extension that will be used to create uuids
-      connection.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"')
-
-      // Promise has issue with this being this, so that is new this :D
-      let that = this
-
-      connection
-        .sync(syncOptions)
-        .then(d => {
-          that.sqlResult = d
-          resolve(d)
-        })
-        .catch(error => {
-          reject(error)
-        })
-    })
   }
 
   /**
@@ -334,10 +252,11 @@ export default class PrismaParser extends Parser {
 
     switch (type) {
       case 'DateTime':
-        t = Sequelize.literal('CURRENT_TIMESTAMP')
+        t = Sequelize.literal('NOW()')
         break
       case 'UUID':
-        t = Sequelize.literal('uuid_generate_v4()')
+        // https://www.postgresql.org/docs/10/pgcrypto.html
+        t = Sequelize.literal('gen_random_uuid()')
         break
       default:
         t = defaultValue
@@ -347,15 +266,14 @@ export default class PrismaParser extends Parser {
   }
 
   transformField(field: IGQLField) {
-    const {isId, type, defaultValue, isUnique} = field
+    const {isId, type, defaultValue, isUnique, isRequired} = field
 
     let ret: DefineAttributeColumnOptions = {
       primaryKey: isId,
-      defaultValue: defaultValue
-        ? Sequelize.literal(defaultValue)
-        : this.getDefaultValueFromPrisma(defaultValue, type),
+      defaultValue: this.getDefaultValueFromPrisma(defaultValue, type),
       type: this.getSqlTypeFromPrisma(type),
       unique: isUnique,
+      // allowNull: !isRequired,
     }
     if (type === 'ID') {
       ret.autoIncrement = true
@@ -403,5 +321,116 @@ export default class PrismaParser extends Parser {
       })
     })
     return cleanedTables
+  }
+
+  /**
+   * Loop through tables and runs Sequilize to generate table definitions and ultimately tables
+   *
+   * Calls raw query to create extension `uuid-ossp` needed for generation of UUIDV4
+   * @param cleanedTables ItableDefinition[]
+   */
+  async sequilize(cleanedTables: ItableDefinition[]) {
+    return new Promise(async (resolve, reject) => {
+      let definedTables = {}
+      const {connection} = this.config.database
+      // Create extension that will be used to create uuids
+      await connection.query('CREATE EXTENSION IF NOT EXISTS "pgcrypto"')
+      await connection.query(
+        'CREATE OR REPLACE FUNCTION update_updatedAt_column()' +
+        ' RETURNS TRIGGER AS $$' +
+        ' BEGIN' +
+        ' NEW."updatedAt" = now();' + // must be surrounded by ""
+          ' RETURN NEW;' +
+          ' END;' +
+          " $$ language 'plpgsql';",
+      )
+      const queryInterface = connection.getQueryInterface()
+      // prepare definitions
+      cleanedTables.forEach(async table => {
+        const {columns, name} = table
+
+        if (!definedTables[name]) {
+          definedTables[name] = connection.define(name, columns, {
+            freezeTableName: true,
+            comment: `I am a ${name}`,
+            hasTrigger: true,
+          })
+          try {
+            await queryInterface.dropTrigger(
+              `"${name}"`,
+              `update_${name}_updatedAt_column`,
+            )
+          } catch (error) {}
+
+          await queryInterface.createTrigger(
+            `"${name}"`,
+            `update_${name}_updatedAt_column`,
+            'before',
+            ['update'],
+            'update_updatedAt_column',
+            [],
+            ['FOR EACH ROW'],
+            {},
+          )
+        }
+      })
+
+      cleanedTables.forEach(async table => {
+        const {name: tableName, relations} = table
+        if (relations) {
+          relations.forEach(relation => {
+            const {
+              isList,
+              name: relationName,
+              target,
+              source,
+              fieldName,
+            } = relation
+
+            if (!definedTables[target]) {
+              this.log('Relation model %s is not processed yet', target)
+              return
+            }
+
+            if (!isList) {
+              this.sqlLog(
+                'Creating relation %s 1->n %s through %s',
+                tableName,
+                target,
+                fieldName,
+              )
+
+              // 1:1 relation
+              definedTables[source].belongsTo(definedTables[target], {
+                as: fieldName,
+              })
+            } else {
+              this.sqlLog(
+                'Creating relation %s n->m %s through %s',
+                tableName,
+                target,
+                fieldName,
+              )
+              definedTables[source].belongsToMany(definedTables[target], {
+                through: relationName,
+              })
+            }
+          })
+        }
+      })
+
+      // Promise has issue with this being this, so that is new this :D
+      let that = this
+
+      connection
+        .sync()
+        .then(d => {
+          that.sqlResult = d
+          resolve(d)
+        })
+        .catch(error => {
+          reject(error)
+        })
+    })
   }
 }

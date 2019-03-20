@@ -5,7 +5,7 @@ import {Sequelize, ModelsHashInterface} from 'sequelize'
 import debug from 'debug'
 import {appLog} from '..'
 
-const {HASURA_API_ENDPOINT} = process.env
+const {HASURA_API_ENDPOINT, HASURA_GRAPHQL_ACCESS_KEY} = process.env
 
 interface IAPIObjectRelationshipParams {
   sourceTableName: string
@@ -229,9 +229,15 @@ export default class HasuraAdapter extends Adapter {
    * Wrapper for the actual POST call to hasura server
    * @api
    */
-  async apiCallPost(data, options?: any) {
+  async apiCallPost(data, options?: {}) {
+    const opts = Object.assign({}, options, {
+      headers: {
+        'X-Hasura-Role': 'admin',
+        'X-Hasura-Admin-Secret': HASURA_GRAPHQL_ACCESS_KEY,
+      },
+    })
     try {
-      return await this.api.post(this.apiUrl, data, options)
+      return await this.api.post(this.apiUrl, data, opts)
     } catch (error) {
       this.error(error.message, JSON.stringify(error.response.data))
     }
@@ -263,13 +269,6 @@ export default class HasuraAdapter extends Adapter {
       })
     })
 
-    return await this.apiCallPost(
-      {type: 'bulk', args: bulkArgs},
-      {
-        headers: {
-          'X-Hasura-Role': 'admin',
-        },
-      },
-    )
+    return await this.apiCallPost({type: 'bulk', args: bulkArgs})
   }
 }
