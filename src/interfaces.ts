@@ -28,7 +28,7 @@ export interface ITableRelation {
 
 export interface IParserConfig {
   schemaString: string
-  adapter: IAdaptersTypes
+  adapter?: IAdaptersTypes
   debug?: boolean
   database: {
     type: DatabaseTypes

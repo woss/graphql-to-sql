@@ -18,6 +18,11 @@ export default class PrismaParser extends Parser {
   private sqlLog: debug.IDebugger
   private sqlResult: any
 
+  configure(config: IParserConfig) {
+    this.config = config
+    this.log = debug('GQL2SQL:parser:prisma')
+    this.sqlLog = debug('GQL2SQL:parser:sequilize')
+  }
   /**
    *
    * @param tableName
@@ -54,11 +59,7 @@ export default class PrismaParser extends Parser {
    * @param relationName
    * @param data
    */
-  private setRelation(
-    tableName: string,
-    relationName: string,
-    data: ITableRelation,
-  ) {
+  private setRelation(tableName: string, data: ITableRelation) {
     let table = this.getTable(tableName)
     if (table.relations.length === 0) {
       table.relations.push(data)
@@ -69,15 +70,16 @@ export default class PrismaParser extends Parser {
     this.setTable(tableName, table)
   }
 
+  private setColumn(tableName: string, columnName: string, data: any) {
+    let table = this.getTable(tableName)
+    table.columns[columnName] = data
+
+    this.setTable(tableName, table)
+  }
   private setTables(types: IGQLType[]): any {
     types.map(t => {
       this.setTable(t.name)
     })
-  }
-  configure(config: IParserConfig) {
-    this.config = config
-    this.log = debug('GQL2SQL:parser:prisma')
-    this.sqlLog = debug('GQL2SQL:parser:sequilize')
   }
 
   async run() {
@@ -93,7 +95,7 @@ export default class PrismaParser extends Parser {
       this.resolveTableRelations(types)
       const tablesWithoutBsRelations = this.cleanRelations()
       await this.sequilize(tablesWithoutBsRelations)
-      this.applyAdapter()
+      // this.applyAdapter()
     } catch (error) {
       appLog('ERROR ::: ', error)
     }
@@ -169,14 +171,15 @@ export default class PrismaParser extends Parser {
         }
 
         const {name: targetTable} = type
-
+        // relationName is named relation @relation(name: 'myName')
+        // relatedField is a map from related table
         if (relationName && !relatedField) {
           /**
            * if  relatedField is empty in prisma schema means that we do not have
            * the relationName declared in the table that we are connecting with
            */
-          this.log('%s to %s through %s', tableName, targetTable, columnName)
-          this.setRelation(tableName, columnName, {
+          this.log('1->n %s.%s to %s', tableName, columnName, targetTable)
+          this.setRelation(tableName, {
             isList: isList,
             fieldName: columnName,
             name: relationName,
@@ -190,13 +193,13 @@ export default class PrismaParser extends Parser {
            * this means we have many-to-many relation
            */
           this.log(
-            '%s to %s through %s via %s',
+            'n->m %s.%s to %s via %s',
             tableName,
-            targetTable,
             columnName,
+            targetTable,
             relationName,
           )
-          this.setRelation(tableName, columnName, {
+          this.setRelation(tableName, {
             isList: isList,
             fieldName: columnName,
             name: relationName,
@@ -205,9 +208,20 @@ export default class PrismaParser extends Parser {
           })
         } else {
           this.log(
-            'Skipping .... %s type does not have a relation',
-            targetTable,
+            `1->n relation ${tableName}.${columnName} to ${targetTable}.id`,
           )
+
+          this.setRelation(tableName, {
+            isList: isList,
+            fieldName: columnName,
+            name: relationName,
+            target: targetTable,
+            source: tableName,
+          })
+          // this.log(
+          //   'Skipping .... %s type does not have a relation',
+          //   targetTable,
+          // )
         }
       }
 
@@ -332,7 +346,7 @@ export default class PrismaParser extends Parser {
   async sequilize(cleanedTables: ItableDefinition[]) {
     return new Promise(async (resolve, reject) => {
       let definedTables = {}
-      const {connection} = this.config.database
+      const {connection, syncOptions} = this.config.database
       // Create extension that will be used to create uuids
       await connection.query('CREATE EXTENSION IF NOT EXISTS "pgcrypto"')
       await connection.query(
@@ -346,91 +360,108 @@ export default class PrismaParser extends Parser {
       )
       const queryInterface = connection.getQueryInterface()
       // prepare definitions
-      cleanedTables.forEach(async table => {
+      await cleanedTables.forEach(table => {
         const {columns, name} = table
 
         if (!definedTables[name]) {
           definedTables[name] = connection.define(name, columns, {
             freezeTableName: true,
-            comment: `I am a ${name}`,
+            // comment: `I am a ${name}`,
             hasTrigger: true,
           })
-          try {
-            await queryInterface.dropTrigger(
-              `"${name}"`,
-              `update_${name}_updatedAt_column`,
-            )
-          } catch (error) {}
-
-          await queryInterface.createTrigger(
-            `"${name}"`,
-            `update_${name}_updatedAt_column`,
-            'before',
-            ['update'],
-            'update_updatedAt_column',
-            [],
-            ['FOR EACH ROW'],
-            {},
-          )
         }
       })
 
-      cleanedTables.forEach(async table => {
-        const {name: tableName, relations} = table
-        if (relations) {
-          relations.forEach(relation => {
-            const {
-              isList,
-              name: relationName,
-              target,
-              source,
-              fieldName,
-            } = relation
+      Promise.all(
+        cleanedTables.map(table => {
+          return new Promise(async (resolve, reject) => {
+            const {name: tableName, relations} = table
 
-            if (!definedTables[target]) {
-              this.log('Relation model %s is not processed yet', target)
-              return
+            try {
+              await queryInterface.dropTrigger(
+                `"${tableName}"`,
+                `update_${tableName}_updatedAt_column`,
+              )
+            } catch (error) {
+              // ignore error here, so what if it cant delete something that is not there
+              // appLog(error)
+            }
+            try {
+              await queryInterface.createTrigger(
+                `"${tableName}"`,
+                `update_${tableName}_updatedAt_column`,
+                'before',
+                ['update'],
+                'update_updatedAt_column',
+                [],
+                ['FOR EACH ROW'],
+                {},
+              )
+            } catch (error) {
+              // ignore error here, so what if it cant create something that is there
+              // appLog(error)
             }
 
-            if (!isList) {
-              this.sqlLog(
-                'Creating relation %s 1->n %s through %s',
-                tableName,
-                target,
-                fieldName,
-              )
+            if (relations) {
+              relations.forEach(relation => {
+                const {
+                  isList,
+                  name: relationName,
+                  target,
+                  source,
+                  fieldName,
+                } = relation
 
-              // 1:1 relation
-              definedTables[source].belongsTo(definedTables[target], {
-                as: fieldName,
+                if (!definedTables[target]) {
+                  this.log('Relation model %s is not processed yet', target)
+                  return
+                }
+
+                if (!isList) {
+                  this.sqlLog(
+                    '1->n %s.%s to %s.id',
+                    tableName,
+                    fieldName,
+                    target,
+                  )
+
+                  // 1:n relation
+                  definedTables[source].belongsTo(definedTables[target], {
+                    as: fieldName,
+                  })
+                } else {
+                  const through = relationName || `${source}On${target}`
+                  this.sqlLog(
+                    'n->m %s.%s to %s via %s ',
+                    tableName,
+                    fieldName,
+                    target,
+                    through,
+                  )
+
+                  definedTables[source].belongsToMany(definedTables[target], {
+                    through,
+                  })
+                }
               })
-            } else {
-              this.sqlLog(
-                'Creating relation %s n->m %s through %s',
-                tableName,
-                target,
-                fieldName,
-              )
-              definedTables[source].belongsToMany(definedTables[target], {
-                through: relationName,
-              })
+              resolve(true)
             }
           })
-        }
+        }),
+      ).then(() => {
+        // Promise has issue with this being this, so that is new this :D
+        let that = this
+
+        connection
+          .sync(syncOptions)
+          .then(d => {
+            that.sqlResult = d
+            resolve(d)
+          })
+          .catch(error => {
+            reject(error)
+          })
       })
-
-      // Promise has issue with this being this, so that is new this :D
-      let that = this
-
-      connection
-        .sync()
-        .then(d => {
-          that.sqlResult = d
-          resolve(d)
-        })
-        .catch(error => {
-          reject(error)
-        })
     })
   }
 }

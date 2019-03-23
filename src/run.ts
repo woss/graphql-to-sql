@@ -9,7 +9,7 @@ import Parsers from './parsers'
 import {DatabaseTypes, IAdaptersTypes} from './interfaces'
 import {readFileSync} from 'fs'
 import sequelize from 'sequelize'
-
+import {parse} from 'graphql'
 const parser = Parsers.create()
 
 const {
@@ -52,16 +52,20 @@ const seq = new sequelize(POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD, {
 })
 
 // seq.createSchema(schema, {})
+const schemaString = readFileSync(
+  resolve(__dirname, '../schema.gql'),
+).toString()
 
 parser.configure({
-  schemaString: readFileSync(resolve(__dirname, '../schema.gql')).toString(),
-  adapter: IAdaptersTypes.hasura,
+  schemaString,
+  // adapter: IAdaptersTypes.hasura,
   debug: true,
   database: {
     type: DatabaseTypes.postgres,
     connection: seq,
     syncOptions: {
       schema,
+      force: true,
     },
   },
 })
