@@ -4,13 +4,16 @@ import {
   DatabaseType,
   IGQLType,
 } from 'prisma-datamodel'
-import Sequelize, {DefineAttributeColumnOptions} from 'sequelize'
+import Sequelize, {DefineAttributeColumnOptions, Utils} from 'sequelize'
 import {ITableRelation, ItableDefinition, IParserConfig} from '../interfaces'
 import Parser from './parser'
 import Adapters from '../adapters'
 import debug from 'debug'
 import {appLog} from '..'
 
+function lowercaseFirstLetter(string) {
+  return string.charAt(0).toLowerCase() + string.slice(1)
+}
 export default class PrismaParser extends Parser {
   private config: IParserConfig
   private tables: ItableDefinition[] = []
@@ -151,8 +154,8 @@ export default class PrismaParser extends Parser {
 
     // Connect all relations
     for (const firstLevelType of types) {
+      // don't lowercase here
       const {name: tableName} = firstLevelType
-
       let t = firstLevelType
 
       let table: ItableDefinition = this.getTable(tableName)
@@ -163,6 +166,8 @@ export default class PrismaParser extends Parser {
           relationName,
           relatedField,
           isList,
+          isRequired,
+          defaultValue,
           type,
         } = firstLevelField
 
@@ -170,23 +175,32 @@ export default class PrismaParser extends Parser {
           continue // Assume scalar
         }
 
+        // don't lowercase here
         const {name: targetTable} = type
+
         // relationName is named relation @relation(name: 'myName')
         // relatedField is a map from related table
-        if (relationName && !relatedField) {
-          /**
-           * if  relatedField is empty in prisma schema means that we do not have
-           * the relationName declared in the table that we are connecting with
-           */
-          this.log('1->n %s.%s to %s', tableName, columnName, targetTable)
-          this.setRelation(tableName, {
-            isList: isList,
-            fieldName: columnName,
-            name: relationName,
-            target: targetTable,
-            source: tableName,
-          })
-        } else if (relationName && relatedField) {
+        // if (relationName && !relatedField) {
+        //   /**
+        //    * if  relatedField is empty in prisma schema means that we do not have
+        //    * the relationName declared in the table that we are connecting with
+        //    */
+        //   this.log(
+        //     '1->n with-back-relation %s.%s to %s',
+        //     tableName,
+        //     columnName,
+        //     targetTable,
+        //   )
+
+        //   this.setRelation(tableName, {
+        //     isList: isList,
+        //     fieldName: columnName,
+        //     name: relationName,
+        //     target: targetTable,
+        //     source: tableName,
+        //   })
+        // }
+        if (relatedField && relatedField.isList) {
           /**
            * if  relatedField is empty in prisma schema means that we do not have
            * the relationName declared in the table that we are connecting with
@@ -211,13 +225,24 @@ export default class PrismaParser extends Parser {
             `1->n relation ${tableName}.${columnName} to ${targetTable}.id`,
           )
 
-          this.setRelation(tableName, {
-            isList: isList,
-            fieldName: columnName,
-            name: relationName,
-            target: targetTable,
-            source: tableName,
-          })
+          const columnFk = {
+            fieldName: `${columnName}_id`,
+            type: Sequelize.UUID,
+            defaultValue: Sequelize.literal(defaultValue),
+            allowNull: !isRequired,
+            references: {
+              model: lowercaseFirstLetter(Utils.pluralize(targetTable)),
+              key: 'id',
+            },
+          }
+          this.setColumn(tableName, columnFk.fieldName, columnFk)
+          // this.setRelation(tableName, {
+          //   isList: isList,
+          //   fieldName: columnName,
+          //   name: relationName,
+          //   target: targetTable,
+          //   source: tableName,
+          // })
           // this.log(
           //   'Skipping .... %s type does not have a relation',
           //   targetTable,
@@ -287,7 +312,7 @@ export default class PrismaParser extends Parser {
       defaultValue: this.getDefaultValueFromPrisma(defaultValue, type),
       type: this.getSqlTypeFromPrisma(type),
       unique: isUnique,
-      // allowNull: !isRequired,
+      allowNull: !isRequired,
     }
     if (type === 'ID') {
       ret.autoIncrement = true
@@ -348,35 +373,67 @@ export default class PrismaParser extends Parser {
       let definedTables = {}
       const {connection, syncOptions} = this.config.database
       // Create extension that will be used to create uuids
-      await connection.query('CREATE EXTENSION IF NOT EXISTS "pgcrypto"')
+      await connection.query(`
+      CREATE EXTENSION IF NOT EXISTS plpgsql WITH SCHEMA pg_catalog;
+      CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public;
+      CREATE EXTENSION IF NOT EXISTS citext;
+      CREATE EXTENSION IF NOT EXISTS pgcrypto;
+      `)
       await connection.query(
-        'CREATE OR REPLACE FUNCTION update_updatedAt_column()' +
-        ' RETURNS TRIGGER AS $$' +
-        ' BEGIN' +
-        ' NEW."updatedAt" = now();' + // must be surrounded by ""
-          ' RETURN NEW;' +
-          ' END;' +
-          " $$ language 'plpgsql';",
+        `create or replace function public.user_full_name(users public.users) returns text as $$
+        select users.given_name || ' ' || users.family_name
+      $$ language sql stable;
+      
+      comment on function public.user_full_name(public.users) is 'A person’s full name which is a concatenation of their first and last name.';
+          `,
+      )
+      await connection.query(
+        `CREATE OR REPLACE FUNCTION public.update_updated_at_column()
+         RETURNS TRIGGER AS $$
+         BEGIN
+         NEW."updated_at" = now();
+           RETURN NEW;
+           END;
+          $$ language plpgsql;
+          `,
+      )
+
+      await connection.query(
+        `CREATE OR REPLACE FUNCTION public.current_user_id ()
+        RETURNS UUID AS $userId$
+        declare
+          userId UUID;
+        BEGIN
+           SELECT id into userId FROM public.users where auth0id=current_setting('user.auth0id')::text;
+           RETURN userId;
+        END;
+        $userId$ LANGUAGE plpgsql;
+        comment on function  public.current_user_id() is
+        E'@omit\nHandy method to get the current user ID for use in RLS policies, etc; in GraphQL, use currentUser{id} instead.';
+        `,
       )
       const queryInterface = connection.getQueryInterface()
       // prepare definitions
       await cleanedTables.forEach(table => {
         const {columns, name} = table
-
         if (!definedTables[name]) {
-          definedTables[name] = connection.define(name, columns, {
-            freezeTableName: true,
-            // comment: `I am a ${name}`,
-            hasTrigger: true,
-          })
+          definedTables[name] = connection.define(
+            lowercaseFirstLetter(name),
+            columns,
+            {
+              // freezeTableName: true, // this makes plural tables
+              // comment: `I am a ${name}`,
+              hasTrigger: true,
+            },
+          )
         }
       })
 
       Promise.all(
         cleanedTables.map(table => {
           return new Promise(async (resolve, reject) => {
-            const {name: tableName, relations} = table
-
+            const {name, relations} = table
+            const tableName = lowercaseFirstLetter(name)
             try {
               await queryInterface.dropTrigger(
                 `"${tableName}"`,
@@ -389,10 +446,10 @@ export default class PrismaParser extends Parser {
             try {
               await queryInterface.createTrigger(
                 `"${tableName}"`,
-                `update_${tableName}_updatedAt_column`,
+                `update_${tableName}_updated_at_column`,
                 'before',
                 ['update'],
-                'update_updatedAt_column',
+                'update_updated_at_column',
                 [],
                 ['FOR EACH ROW'],
                 {},
@@ -411,26 +468,27 @@ export default class PrismaParser extends Parser {
                   source,
                   fieldName,
                 } = relation
-
                 if (!definedTables[target]) {
                   this.log('Relation model %s is not processed yet', target)
                   return
                 }
-
-                if (!isList) {
-                  this.sqlLog(
-                    '1->n %s.%s to %s.id',
-                    tableName,
-                    fieldName,
-                    target,
-                  )
-
-                  // 1:n relation
-                  definedTables[source].belongsTo(definedTables[target], {
-                    as: fieldName,
-                  })
-                } else {
-                  const through = relationName || `${source}On${target}`
+                // if (!isList) {
+                //   this.sqlLog(
+                //     '1->n %s.%s to %s.id',
+                //     tableName,
+                //     fieldName,
+                //     target,
+                //   )
+                //   // 1:n relation
+                //   definedTables[source].belongsTo(definedTables[target], {
+                //     as: fieldName,
+                //     constraints: false,
+                //   })
+                // }
+                if (isList) {
+                  const through =
+                    // relationName ||
+                    `${lowercaseFirstLetter(source)}_${target}`
                   this.sqlLog(
                     'n->m %s.%s to %s via %s ',
                     tableName,
@@ -438,14 +496,14 @@ export default class PrismaParser extends Parser {
                     target,
                     through,
                   )
-
                   definedTables[source].belongsToMany(definedTables[target], {
                     through,
+                    // constraints: false,
                   })
                 }
               })
-              resolve(true)
             }
+            resolve(true)
           })
         }),
       ).then(() => {
@@ -455,7 +513,17 @@ export default class PrismaParser extends Parser {
         connection
           .sync(syncOptions)
           .then(d => {
-            that.sqlResult = d
+            // const {models} = d
+            // Object.keys(models).forEach(i => {
+            //   const model = models[i]
+            //   const {attributes} = model
+            //   if (attributes.hasOwnProperty('owner_id')) {
+            //     const ownerId = attributes.owner_id
+            //     ownerId.defaultValue = 'current_user_id()'
+            //     model.sync()
+            //   }
+            // })
+
             resolve(d)
           })
           .catch(error => {

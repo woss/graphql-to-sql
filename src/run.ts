@@ -9,51 +9,46 @@ import Parsers from './parsers'
 import {DatabaseTypes, IAdaptersTypes} from './interfaces'
 import {readFileSync} from 'fs'
 import sequelize from 'sequelize'
-import {parse} from 'graphql'
 const parser = Parsers.create()
 
 const {
-  POSTGRES_DB,
-  POSTGRES_USER,
-  POSTGRES_PASSWORD,
-  POSTGRES_HOST,
-  POSTGRES_PORT,
-  POSTGRES_PORT_FORWARDED,
-  POSTGRES_LOGGING,
+  PG_DB,
+  PG_USER,
+  PG_PASSWORD,
+  PG_HOST,
+  PG_PORT,
+  PG_PORT_FORWARDED,
+  PG_LOGGING,
 } = process.env
 
-if (
-  !POSTGRES_DB ||
-  !POSTGRES_USER ||
-  !POSTGRES_PASSWORD ||
-  !POSTGRES_HOST ||
-  !POSTGRES_PORT
-) {
-  throw new Error('Pleae set up the env variables')
+if (!PG_DB || !PG_USER || !PG_PASSWORD || !PG_HOST || !PG_PORT) {
+  throw new Error('Please set up the env variables')
 }
 console.log(
-  POSTGRES_DB,
-  POSTGRES_USER,
-  POSTGRES_PASSWORD,
-  POSTGRES_HOST,
-  POSTGRES_PORT,
-  POSTGRES_PORT_FORWARDED,
-  POSTGRES_LOGGING,
+  PG_DB,
+  PG_USER,
+  PG_PASSWORD,
+  PG_HOST,
+  PG_PORT,
+  PG_PORT_FORWARDED,
+  PG_LOGGING,
 )
 const schema = 'public'
-const seq = new sequelize(POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD, {
-  host: POSTGRES_HOST,
-  port: parseInt(POSTGRES_PORT_FORWARDED || POSTGRES_PORT, 10),
-  logging: !!POSTGRES_LOGGING,
+
+const seq = new sequelize(PG_DB, PG_USER, PG_PASSWORD, {
+  host: PG_HOST,
+  port: parseInt(PG_PORT_FORWARDED || PG_PORT, 10),
+  logging: true,
   dialect: 'postgres',
   define: {
-    timestamps: true,
+    timestamps: false,
+    underscored: true,
   },
 })
 
 // seq.createSchema(schema, {})
 const schemaString = readFileSync(
-  resolve(__dirname, '../schema.gql'),
+  resolve(__dirname, '../datamodel.graphql'),
 ).toString()
 
 parser.configure({
