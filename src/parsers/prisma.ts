@@ -379,14 +379,14 @@ export default class PrismaParser extends Parser {
       CREATE EXTENSION IF NOT EXISTS citext;
       CREATE EXTENSION IF NOT EXISTS pgcrypto;
       `)
-      await connection.query(
-        `create or replace function public.user_full_name(users public.users) returns text as $$
-        select users.given_name || ' ' || users.family_name
-      $$ language sql stable;
-      
-      comment on function public.user_full_name(public.users) is 'A person’s full name which is a concatenation of their first and last name.';
-          `,
-      )
+      // await connection.query(
+      //   `create or replace function public.user_full_name(users public.users) returns text as $$
+      //   select users.given_name || ' ' || users.family_name
+      // $$ language sql stable;
+
+      // comment on function public.user_full_name(public.users) is 'A person’s full name which is a concatenation of their first and last name.';
+      //     `,
+      // )
       await connection.query(
         `CREATE OR REPLACE FUNCTION public.update_updated_at_column()
          RETURNS TRIGGER AS $$
@@ -487,8 +487,7 @@ export default class PrismaParser extends Parser {
                 // }
                 if (isList) {
                   const through =
-                    // relationName ||
-                    `${lowercaseFirstLetter(source)}_${target}`
+                    relationName || `${lowercaseFirstLetter(source)}_${target}`
                   this.sqlLog(
                     'n->m %s.%s to %s via %s ',
                     tableName,
