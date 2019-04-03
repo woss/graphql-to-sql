@@ -5,11 +5,10 @@
 require('dotenv').config()
 
 import {resolve} from 'path'
-import Parsers from './parsers'
 import {DatabaseTypes, IAdaptersTypes} from './interfaces'
 import {readFileSync} from 'fs'
 import sequelize from 'sequelize'
-const parser = Parsers.create()
+import {DefaultParser} from '.'
 
 const {
   PG_DB,
@@ -51,9 +50,9 @@ const schemaString = readFileSync(
   resolve(__dirname, '../datamodel.graphql'),
 ).toString()
 
-parser.configure({
-  schemaString,
-  // adapter: IAdaptersTypes.hasura,
+const parser = new DefaultParser({
+  schema: schemaString,
+  adapters: [IAdaptersTypes.postgraphile],
   debug: true,
   database: {
     type: DatabaseTypes.postgres,

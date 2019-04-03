@@ -2,6 +2,7 @@ import {Sequelize, DefineModelAttributes, SyncOptions} from 'sequelize'
 
 export enum IAdaptersTypes {
   hasura = 'hasura',
+  postgraphile = 'postgraphile',
 }
 
 export enum ParserTypes {
@@ -27,12 +28,12 @@ export interface ITableRelation {
 }
 
 export interface IParserConfig {
-  schemaString: string
-  adapter?: IAdaptersTypes
+  schema: string
+  adapters?: IAdaptersTypes[]
   debug?: boolean
   database: {
     type: DatabaseTypes
-    connection: Sequelize
+    connection?: Sequelize
     syncOptions: SyncOptions
   }
 }

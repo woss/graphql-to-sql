@@ -3,7 +3,7 @@
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
     "sourceMap": true,
-    "lib": ["es5", "es6", "dom", "es2015", "esnext.asynciterable"],
+    "lib": ["es5", "es6", "dom", "es2015", "es2017", "esnext.asynciterable"],
     "esModuleInterop": true,
     "moduleResolution": "node",
     "skipLibCheck": true,

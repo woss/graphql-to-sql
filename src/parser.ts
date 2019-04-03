@@ -5,25 +5,26 @@ import {
   IGQLType,
 } from 'prisma-datamodel'
 import Sequelize, {DefineAttributeColumnOptions, Utils} from 'sequelize'
-import {ITableRelation, ItableDefinition, IParserConfig} from '../interfaces'
-import Parser from './parser'
-import Adapters from '../adapters'
+import {ITableRelation, ItableDefinition, IParserConfig} from './interfaces'
+import Adapters from './adapters'
 import debug from 'debug'
-import {appLog} from '..'
+import {appLog} from '.'
+import {
+  generateConnectingTable,
+  generateTableName,
+  lowercaseFirstLetter,
+} from './util/utils'
 
-function lowercaseFirstLetter(string) {
-  return string.charAt(0).toLowerCase() + string.slice(1)
-}
-export default class PrismaParser extends Parser {
+export default class DefaultParser {
   private config: IParserConfig
   private tables: ItableDefinition[] = []
   private log: debug.IDebugger
   private sqlLog: debug.IDebugger
   private sqlResult: any
 
-  configure(config: IParserConfig) {
+  constructor(config: IParserConfig) {
     this.config = config
-    this.log = debug('GQL2SQL:parser:prisma')
+    this.log = debug('GQL2SQL:parser:default')
     this.sqlLog = debug('GQL2SQL:parser:sequilize')
   }
   /**
@@ -88,7 +89,7 @@ export default class PrismaParser extends Parser {
   async run() {
     try {
       // parse the Graphql SDL
-      const parsed = this.parseSchemaFromString(this.config.schemaString)
+      const parsed = this.parseSchemaFromString(this.config.schema)
       const {types} = parsed
 
       appLog(`We have ${types.length} types to process. `)
@@ -108,15 +109,14 @@ export default class PrismaParser extends Parser {
    * Apply the adapter
    */
   applyAdapter() {
-    const adapter = Adapters.create(this.config.adapter)
-    adapter.configure({
-      schema: this.config.database.syncOptions.schema,
-      sqlResult: this.sqlResult,
-      tables: this.tables,
-      debug: this.config['debug'],
-    })
-
-    adapter.apply()
+    // const adapter = Adapters.create(this.config.adapter)
+    // adapter.configure({
+    //   schema: this.config.database.syncOptions.schema,
+    //   sqlResult: this.sqlResult,
+    //   tables: this.tables,
+    //   debug: this.config['debug'],
+    // })
+    // adapter.apply()
   }
 
   /**
@@ -146,7 +146,7 @@ export default class PrismaParser extends Parser {
   }
 
   /**
-   * Resolves the type connectionsfrom prisma to simpler format we can use
+   * Resolves the type connections from prisma to simpler format we can use
    * @param types
    */
   resolveTableRelations(types: IGQLType[]) {
@@ -156,7 +156,6 @@ export default class PrismaParser extends Parser {
     for (const firstLevelType of types) {
       // don't lowercase here
       const {name: tableName} = firstLevelType
-      let t = firstLevelType
 
       let table: ItableDefinition = this.getTable(tableName)
 
@@ -178,31 +177,12 @@ export default class PrismaParser extends Parser {
         // don't lowercase here
         const {name: targetTable} = type
 
-        // relationName is named relation @relation(name: 'myName')
-        // relatedField is a map from related table
-        // if (relationName && !relatedField) {
-        //   /**
-        //    * if  relatedField is empty in prisma schema means that we do not have
-        //    * the relationName declared in the table that we are connecting with
-        //    */
-        //   this.log(
-        //     '1->n with-back-relation %s.%s to %s',
-        //     tableName,
-        //     columnName,
-        //     targetTable,
-        //   )
+        if (relatedField && isList) {
+          let computedRelationName =
+            relationName || generateConnectingTable(tableName, targetTable)
 
-        //   this.setRelation(tableName, {
-        //     isList: isList,
-        //     fieldName: columnName,
-        //     name: relationName,
-        //     target: targetTable,
-        //     source: tableName,
-        //   })
-        // }
-        if (relatedField && relatedField.isList) {
           /**
-           * if  relatedField is empty in prisma schema means that we do not have
+           * if relatedField is not empty in prisma schema means that we do not have
            * the relationName declared in the table that we are connecting with
            * this means we have many-to-many relation
            */
@@ -211,16 +191,20 @@ export default class PrismaParser extends Parser {
             tableName,
             columnName,
             targetTable,
-            relationName,
+            computedRelationName,
           )
+
           this.setRelation(tableName, {
             isList: isList,
             fieldName: columnName,
-            name: relationName,
+            name: computedRelationName,
             target: targetTable,
             source: tableName,
           })
         } else {
+          // Sequilize is rather limited when it comes to the belongsTo()
+          // We are manually creating the Foreign Key ith defaultValue if provided
+          // real world scenario is to create defaultValue = current_user_id() on owner_id
           this.log(
             `1->n relation ${tableName}.${columnName} to ${targetTable}.id`,
           )
@@ -236,17 +220,6 @@ export default class PrismaParser extends Parser {
             },
           }
           this.setColumn(tableName, columnFk.fieldName, columnFk)
-          // this.setRelation(tableName, {
-          //   isList: isList,
-          //   fieldName: columnName,
-          //   name: relationName,
-          //   target: targetTable,
-          //   source: tableName,
-          // })
-          // this.log(
-          //   'Skipping .... %s type does not have a relation',
-          //   targetTable,
-          // )
         }
       }
 
@@ -329,29 +302,24 @@ export default class PrismaParser extends Parser {
       relationsA.forEach(firstLevelRelation => {
         const {isList, source, target} = firstLevelRelation
 
-        if (!isList) {
-          // find relation table based on target field
-          const relatedTable = this.tables.find(t => t.name === target)
-          if (relatedTable) {
-            const relatedRelation = relatedTable.relations.find(
-              t => t.target === source && t.source === target,
-            )
-
-            if (relatedRelation) {
-              const relationAlreadyProcessed = cleanedTables.find(t => {
-                if (t.name === target) {
-                  return t.relations.find(r => r.name === relatedRelation.name)
-                }
-              })
-              if (!relationAlreadyProcessed) {
-                relations.push(firstLevelRelation)
-              }
-            } else {
-              relations.push(firstLevelRelation)
-            }
+        const relatedTable = cleanedTables.find(t => t.name === target)
+        //find the relation in target
+        if (relatedTable) {
+          const relatedRelation = relatedTable.relations.find(
+            t => t.target === source && t.source === target,
+          )
+          if (relatedRelation) {
+            return null
           }
-        } else {
+        }
+
+        if (isList) {
           relations.push(firstLevelRelation)
+        } else {
+          this.log(
+            'Got the relation which I donno how to use',
+            firstLevelRelation,
+          )
         }
       })
       cleanedTables.push({
@@ -371,9 +339,12 @@ export default class PrismaParser extends Parser {
   async sequilize(cleanedTables: ItableDefinition[]) {
     return new Promise(async (resolve, reject) => {
       let definedTables = {}
+      const queriesToRunAfterSync = []
       const {connection, syncOptions} = this.config.database
       // Create extension that will be used to create uuids
       await connection.query(`
+      set search_path to public;
+
       CREATE EXTENSION IF NOT EXISTS plpgsql WITH SCHEMA pg_catalog;
       CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public;
       CREATE EXTENSION IF NOT EXISTS citext;
@@ -433,20 +404,15 @@ export default class PrismaParser extends Parser {
         cleanedTables.map(table => {
           return new Promise(async (resolve, reject) => {
             const {name, relations} = table
-            const tableName = lowercaseFirstLetter(name)
+            const sourceTable = lowercaseFirstLetter(name)
             try {
               await queryInterface.dropTrigger(
-                `"${tableName}"`,
-                `update_${tableName}_updatedAt_column`,
+                `"${sourceTable}"`,
+                `update_${sourceTable}_updatedAt_column`,
               )
-            } catch (error) {
-              // ignore error here, so what if it cant delete something that is not there
-              // appLog(error)
-            }
-            try {
               await queryInterface.createTrigger(
-                `"${tableName}"`,
-                `update_${tableName}_updated_at_column`,
+                `"${sourceTable}"`,
+                `update_${sourceTable}_updated_at_column`,
                 'before',
                 ['update'],
                 'update_updated_at_column',
@@ -455,7 +421,7 @@ export default class PrismaParser extends Parser {
                 {},
               )
             } catch (error) {
-              // ignore error here, so what if it cant create something that is there
+              // ignore error here, so what if it cant delete something that is not there
               // appLog(error)
             }
 
@@ -472,10 +438,11 @@ export default class PrismaParser extends Parser {
                   this.log('Relation model %s is not processed yet', target)
                   return
                 }
+                const targetTable = lowercaseFirstLetter(target)
                 // if (!isList) {
                 //   this.sqlLog(
                 //     '1->n %s.%s to %s.id',
-                //     tableName,
+                //     sourceTable,
                 //     fieldName,
                 //     target,
                 //   )
@@ -486,22 +453,45 @@ export default class PrismaParser extends Parser {
                 //   })
                 // }
                 if (isList) {
-                  const through =
-                    relationName || `${lowercaseFirstLetter(source)}_${target}`
+                  const sourceTablePluralized = generateTableName(sourceTable)
+                  const targetTablePluralized = generateTableName(targetTable)
+                  const through = generateConnectingTable(
+                    sourceTable,
+                    targetTable,
+                  )
+                  const throughBack = `${targetTablePluralized}_${sourceTablePluralized}`
                   this.sqlLog(
                     'n->m %s.%s to %s via %s ',
-                    tableName,
+                    sourceTable,
                     fieldName,
-                    target,
+                    targetTable,
                     through,
                   )
                   definedTables[source].belongsToMany(definedTables[target], {
                     through,
                     // constraints: false,
                   })
+                  queriesToRunAfterSync.push(
+                    `comment on table ${through} is E'@omit';`,
+                  )
+
+                  queriesToRunAfterSync.push(
+                    `create function ${through}(${sourceTablePluralized}) returns setof ${targetTablePluralized} as $$
+                    select ${targetTablePluralized}.* from ${targetTablePluralized} inner join ${through} on (${through}.${targetTable}_id = ${targetTablePluralized}.id) where ${through}.${sourceTable}_id = $1.id;
+                  $$ language sql stable set search_path from current;
+                    `,
+                  )
+                  queriesToRunAfterSync.push(
+                    `create function ${throughBack}(${targetTablePluralized}) returns setof ${sourceTablePluralized} as $$
+                      select ${sourceTablePluralized}.* from ${sourceTablePluralized} inner join ${through} on (${through}.${sourceTable}_id = ${sourceTablePluralized}.id) where ${through}.${targetTable}_id = $1.id;
+                    $$ language sql stable set search_path from current;
+                      `,
+                  )
+                  console.log(queriesToRunAfterSync)
                 }
               })
             }
+
             resolve(true)
           })
         }),
@@ -511,17 +501,14 @@ export default class PrismaParser extends Parser {
 
         connection
           .sync(syncOptions)
-          .then(d => {
-            // const {models} = d
-            // Object.keys(models).forEach(i => {
-            //   const model = models[i]
-            //   const {attributes} = model
-            //   if (attributes.hasOwnProperty('owner_id')) {
-            //     const ownerId = attributes.owner_id
-            //     ownerId.defaultValue = 'current_user_id()'
-            //     model.sync()
-            //   }
-            // })
+          .then(async d => {
+            await queriesToRunAfterSync.map(async q => {
+              try {
+                await connection.query(q)
+              } catch (error) {
+                console.error(error)
+              }
+            })
 
             resolve(d)
           })
