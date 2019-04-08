@@ -2,12 +2,21 @@
   "name": "graphql-to-sql",
   "version": "1.0.0",
   "license": "MIT",
+  "bin": {
+    "graphql-to-sql": "./dist/bin.js"
+  },
+  "main": "./dist/index.js",
+  "typings": "./dist/index.d.ts",
   "scripts": {
     "prestart": "node preflight.js",
-    "start": "export DEBUG=GQL2SQL* && nodemon  --watch src -r ts-node/register --inspect=32211 src/run.ts",
+    "start": "nodemon  --watch src -r ts-node/register --inspect=32211 src/run.ts",
     "test": "jest --watch",
     "docs": "typedoc --exclude ./src/__tests__/**/* --out ./docs ./src",
-    "docs:deploy": "yarn docs && cd ./docs && now --name graphql-to-sql --public"
+    "docs:deploy": "yarn docs && cd ./docs && now --name graphql-to-sql --public",
+    "clean": "rimraf dist",
+    "prepublish": "npm run build",
+    "prebuild": "npm-run-all clean pretty",
+    "build": "tsc -d"
   },
   "dependencies": {
     "axios": "^0.18.0",
@@ -16,7 +25,7 @@
     "debug": "^4.1.1",
     "inquirer": "^6.2.2",
     "pg": "^7.8.0",
-    "prisma-datamodel": "^1.25.3",
+    "prisma-datamodel": "^1.30.0",
     "sequelize": "^4.42.0"
   },
   "devDependencies": {

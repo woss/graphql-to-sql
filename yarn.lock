@@ -3456,10 +3456,10 @@ pretty-format@^24.0.0:
     ansi-regex "^4.0.0"
     ansi-styles "^3.2.0"
 
-prisma-datamodel@^1.25.3:
-  version "1.25.3"
-  resolved "https://registry.yarnpkg.com/prisma-datamodel/-/prisma-datamodel-1.25.3.tgz#6b954a51b0ab1182f40a25218c2947ffd404f579"
-  integrity sha512-upLDHfb7BPmJx7dtcqgBK62TSqwxuOFzxm1Ao3ZHpQsqaJhgquPXU3/TCBmgmwq/sX4tq5uc5T8Kf8dO7Not+g==
+prisma-datamodel@^1.30.0:
+  version "1.30.0"
+  resolved "https://registry.yarnpkg.com/prisma-datamodel/-/prisma-datamodel-1.30.0.tgz#c6701c91beeaa4c00c733d5aac77410e6cccbcf5"
+  integrity sha512-4IagbEhdf0f/cSkZDrcNAx0tIabf4LcTWLvBJ/ddE4/i4q/kKhRzvSwh4cSU4EeE54jTN60FlDRqbCTcq+c65Q==
   dependencies:
     graphql "^14.0.2"
     pluralize "^7.0.0"
