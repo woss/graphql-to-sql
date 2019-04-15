@@ -1,7 +1,7 @@
 import {ItableDefinition, ITableRelation} from '../interfaces'
 import Adapter from './adapter'
 import axios, {AxiosInstance} from 'axios'
-import {Sequelize, ModelsHashInterface} from 'sequelize'
+import {Sequelize} from 'sequelize'
 import debug from 'debug'
 import {appLog} from '..'
 

@@ -1,7 +1,7 @@
 import {ItableDefinition, ITableRelation} from '../interfaces'
 import Adapter from './adapter'
 import axios, {AxiosInstance} from 'axios'
-import {Sequelize, ModelsHashInterface} from 'sequelize'
+import {Sequelize} from 'sequelize'
 import debug from 'debug'
 import {appLog} from '..'
 
@@ -98,9 +98,9 @@ export default class HasuraAdapter extends Adapter {
   /**
    * Wrapper function that loops through the Sequilize models and calls API
    * Additionally tries to find connection where target is a source
-   * @param models ModelsHashInterface Sequilize models
+   * @param models  Sequilize models
    */
-  async createRelationships(models: any | ModelsHashInterface) {
+  async createRelationships(models: any) {
     // reason why any is added is because associations are not part of the model getters, it's a field that is not relevant when workign with sequilize models, because getter for the relationship is handeled differently. This is more for orientation rather than code coverage :)
     for (const key in models) {
       const model = models[key]

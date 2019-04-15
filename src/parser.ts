@@ -1,10 +1,15 @@
 import {
   IGQLField,
-  Parser as prismaParser,
+  DefaultParser as prismaParser,
   DatabaseType,
   IGQLType,
 } from 'prisma-datamodel'
-import Sequelize, {DefineAttributeColumnOptions, Utils} from 'sequelize'
+import sequelize, {
+  Utils,
+  Sequelize,
+  ModelAttributeColumnOptions,
+  UUID,
+} from 'sequelize'
 import {ITableRelation, ItableDefinition, IParserConfig} from './interfaces'
 import Adapters from './adapters'
 import debug from 'debug'
@@ -20,12 +25,14 @@ export default class DefaultParser {
   private tables: ItableDefinition[] = []
   private log: debug.IDebugger
   private sqlLog: debug.IDebugger
-  private sqlResult: any
+  private sql: Sequelize
 
   constructor(config: IParserConfig) {
     this.config = config
     this.log = debug('GQL2SQL:parser:default')
     this.sqlLog = debug('GQL2SQL:parser:sequilize')
+    const {database} = config
+    this.sql = new Sequelize(database.connectionParams)
   }
   /**
    *
@@ -146,7 +153,7 @@ export default class DefaultParser {
   }
 
   /**
-   * Resolves the type connections from prisma to simpler format we can use
+   * Resolves the type this.sqls from prisma to simpler format we can use
    * @param types
    */
   resolveTableRelations(types: IGQLType[]) {
@@ -211,8 +218,8 @@ export default class DefaultParser {
 
           const columnFk = {
             fieldName: `${columnName}_id`,
-            type: Sequelize.UUID,
-            defaultValue: Sequelize.literal(defaultValue),
+            type: UUID,
+            defaultValue: defaultValue ? Sequelize.literal(defaultValue) : null,
             allowNull: !isRequired,
             references: {
               model: lowercaseFirstLetter(Utils.pluralize(targetTable)),
@@ -240,17 +247,17 @@ export default class DefaultParser {
 
     switch (type) {
       case 'ID':
-        t = Sequelize.INTEGER
+        t = sequelize.INTEGER
         this.log('IDs are for now INTEGERS')
         break
       case 'DateTime':
-        t = Sequelize.DATE
+        t = sequelize.DATE
         break
       case 'Int':
-        t = Sequelize.INTEGER
+        t = sequelize.INTEGER
         break
       default:
-        t = Sequelize[type.toUpperCase()]
+        t = sequelize[type.toUpperCase()]
         break
     }
     return t
@@ -264,11 +271,11 @@ export default class DefaultParser {
 
     switch (type) {
       case 'DateTime':
-        t = Sequelize.literal('NOW()')
+        t = sequelize.literal('NOW()')
         break
       case 'UUID':
         // https://www.postgresql.org/docs/10/pgcrypto.html
-        t = Sequelize.literal('gen_random_uuid()')
+        t = sequelize.literal('gen_random_uuid()')
         break
       default:
         t = defaultValue
@@ -280,7 +287,7 @@ export default class DefaultParser {
   transformField(field: IGQLField) {
     const {isId, type, defaultValue, isUnique, isRequired} = field
 
-    let ret: DefineAttributeColumnOptions = {
+    let ret: ModelAttributeColumnOptions = {
       primaryKey: isId,
       defaultValue: this.getDefaultValueFromPrisma(defaultValue, type),
       type: this.getSqlTypeFromPrisma(type),
@@ -340,9 +347,9 @@ export default class DefaultParser {
     return new Promise(async (resolve, reject) => {
       let definedTables = {}
       const queriesToRunAfterSync = []
-      const {connection, syncOptions} = this.config.database
+      const {syncOptions} = this.config.database
       // Create extension that will be used to create uuids
-      await connection.query(`
+      await this.sql.query(`
       set search_path to public;
 
       CREATE EXTENSION IF NOT EXISTS plpgsql WITH SCHEMA pg_catalog;
@@ -350,7 +357,7 @@ export default class DefaultParser {
       CREATE EXTENSION IF NOT EXISTS citext;
       CREATE EXTENSION IF NOT EXISTS pgcrypto;
       `)
-      // await connection.query(
+      // await this.sql.query(
       //   `create or replace function public.user_full_name(users public.users) returns text as $$
       //   select users.given_name || ' ' || users.family_name
       // $$ language sql stable;
@@ -358,7 +365,7 @@ export default class DefaultParser {
       // comment on function public.user_full_name(public.users) is 'A person’s full name which is a concatenation of their first and last name.';
       //     `,
       // )
-      await connection.query(
+      await this.sql.query(
         `CREATE OR REPLACE FUNCTION public.update_updated_at_column()
          RETURNS TRIGGER AS $$
          BEGIN
@@ -369,7 +376,7 @@ export default class DefaultParser {
           `,
       )
 
-      await connection.query(
+      await this.sql.query(
         `CREATE OR REPLACE FUNCTION public.current_user_id ()
         RETURNS UUID AS $userId$
         declare
@@ -383,12 +390,12 @@ export default class DefaultParser {
         E'@omit\nHandy method to get the current user ID for use in RLS policies, etc; in GraphQL, use currentUser{id} instead.';
         `,
       )
-      const queryInterface = connection.getQueryInterface()
+      const queryInterface = this.sql.getQueryInterface()
       // prepare definitions
       await cleanedTables.forEach(table => {
         const {columns, name} = table
         if (!definedTables[name]) {
-          definedTables[name] = connection.define(
+          definedTables[name] = this.sql.define(
             lowercaseFirstLetter(name),
             columns,
             {
@@ -414,7 +421,7 @@ export default class DefaultParser {
                 `"${sourceTable}"`,
                 `update_${sourceTable}_updated_at_column`,
                 'before',
-                ['update'],
+                [{update: 'on'}],
                 'update_updated_at_column',
                 [],
                 ['FOR EACH ROW'],
@@ -476,13 +483,13 @@ export default class DefaultParser {
                   )
 
                   queriesToRunAfterSync.push(
-                    `create function ${through}(${sourceTablePluralized}) returns setof ${targetTablePluralized} as $$
+                    `create or replace function ${through}(${sourceTablePluralized}) returns setof ${targetTablePluralized} as $$
                     select ${targetTablePluralized}.* from ${targetTablePluralized} inner join ${through} on (${through}.${targetTable}_id = ${targetTablePluralized}.id) where ${through}.${sourceTable}_id = $1.id;
                   $$ language sql stable set search_path from current;
                     `,
                   )
                   queriesToRunAfterSync.push(
-                    `create function ${throughBack}(${targetTablePluralized}) returns setof ${sourceTablePluralized} as $$
+                    `create or replace function ${throughBack}(${targetTablePluralized}) returns setof ${sourceTablePluralized} as $$
                       select ${sourceTablePluralized}.* from ${sourceTablePluralized} inner join ${through} on (${through}.${sourceTable}_id = ${sourceTablePluralized}.id) where ${through}.${targetTable}_id = $1.id;
                     $$ language sql stable set search_path from current;
                       `,
@@ -499,12 +506,12 @@ export default class DefaultParser {
         // Promise has issue with this being this, so that is new this :D
         let that = this
 
-        connection
+        this.sql
           .sync(syncOptions)
           .then(async d => {
             await queriesToRunAfterSync.map(async q => {
               try {
-                await connection.query(q)
+                await this.sql.query(q)
               } catch (error) {
                 console.error(error)
               }

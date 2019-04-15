@@ -3,19 +3,19 @@
   "version": "1.0.0",
   "license": "MIT",
   "bin": {
-    "graphql-to-sql": "./dist/bin.js"
+    "gql2sql": "./dist/bin.js"
   },
   "main": "./dist/index.js",
   "typings": "./dist/index.d.ts",
   "scripts": {
     "prestart": "node preflight.js",
-    "start": "nodemon  --watch src -r ts-node/register --inspect=32211 src/run.ts",
+    "start": "nodemon  --watch src -r ts-node/register --inspect=32211 src/bin.ts",
     "test": "jest --watch",
     "docs": "typedoc --exclude ./src/__tests__/**/* --out ./docs ./src",
     "docs:deploy": "yarn docs && cd ./docs && now --name graphql-to-sql --public",
     "clean": "rimraf dist",
     "prepublish": "npm run build",
-    "prebuild": "npm-run-all clean pretty",
+    "prebuild": "yarn clean pretty",
     "build": "tsc -d"
   },
   "dependencies": {
@@ -26,14 +26,13 @@
     "inquirer": "^6.2.2",
     "pg": "^7.8.0",
     "prisma-datamodel": "^1.30.0",
-    "sequelize": "^4.42.0"
+    "sequelize": "^5.5.0"
   },
   "devDependencies": {
     "@babel/preset-typescript": "^7.1.0",
     "@types/axios": "^0.14.0",
     "@types/debug": "^0.0.31",
     "@types/jest": "^23.3.13",
-    "@types/sequelize": "^4.27.34",
     "dotenv": "^6.2.0",
     "jest": "^24.0.0",
     "nodemon": "^1.18.9",

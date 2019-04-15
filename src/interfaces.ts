@@ -1,4 +1,4 @@
-import {Sequelize, DefineModelAttributes, SyncOptions} from 'sequelize'
+import {SyncOptions, Options} from 'sequelize'
 
 export enum IAdaptersTypes {
   hasura = 'hasura',
@@ -15,7 +15,7 @@ export enum DatabaseTypes {
 
 export interface ItableDefinition {
   name: string
-  columns: DefineModelAttributes<any>
+  columns: {}
   relations?: ITableRelation[]
 }
 
@@ -33,7 +33,7 @@ export interface IParserConfig {
   debug?: boolean
   database: {
     type: DatabaseTypes
-    connection?: Sequelize
+    connectionParams?: Options
     syncOptions: SyncOptions
   }
 }
