@@ -10,7 +10,7 @@
     "docs:deploy": "yarn docs && cd ./docs && now --name graphql-to-sql --public"
   },
   "dependencies": {
-    "axios": "^0.18.0",
+    "axios": "^0.18.1",
     "debug": "^4.1.1",
     "pg": "^7.8.0",
     "prisma-datamodel": "^1.25.3",
