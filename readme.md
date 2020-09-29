@@ -1,5 +1,10 @@
 # graphql to sql
 
+** NOTICE **
+
+This pacakge is NOT MAINTAINED ANYMORE. 
+
+
 Turn your [Prisma](https:prisma.io) GraphQL models into SQL tables without [Prisma](https:prisma.io) server.
 
 Hook up adapter and do more magic.
